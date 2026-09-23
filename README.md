@@ -1,7 +1,7 @@
 # Modding Support Tool (Assembly C# Dumper)
 
 <p align="center">
-  <img src="ModdingSupportTool/Assets/avalonia-logo.ico" alt="Logo" width="96" height="96" />
+  <img src="ModdingSupportTool/Assets/app-icon.png" alt="Logo" width="128" height="128" />
 </p>
 
 <p align="center">

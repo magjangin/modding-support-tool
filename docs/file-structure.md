@@ -137,8 +137,10 @@
 
 ### 📂 `ModdingSupportTool/Assets/` (리소스)
 
+- [`app-icon.ico`](file:///h:/source/repos/modding%20support%20tool/ModdingSupportTool/Assets/app-icon.ico) / [`app-icon.png`](file:///h:/source/repos/modding%20support%20tool/ModdingSupportTool/Assets/app-icon.png):
+  - 네온 사이버네틱 렌치와 게임패드, C# 코드 브래킷 모티브의 모딩 툴 공식 전용 아이콘 (창 아이콘, 실행 바이너리 아이콘, README 로고).
 - [`avalonia-logo.ico`](file:///h:/source/repos/modding%20support%20tool/ModdingSupportTool/Assets/avalonia-logo.ico):
-  - 애플리케이션 창 및 작업표시줄 아이콘.
+  - 하위 호환성을 위해 새 아이콘과 동일하게 치환 유지된 아이콘.
 
 ---
 
