@@ -12,7 +12,6 @@
   <a href="https://dotnet.microsoft.com/"><img src="https://img.shields.io/badge/.NET-10.0-512BD4?logo=dotnet&logoColor=white" alt=".NET 10" /></a>
   <a href="https://avaloniaui.net/"><img src="https://img.shields.io/badge/UI-Avalonia%2012-8A2BE2?logo=avalonia&logoColor=white" alt="Avalonia UI" /></a>
   <a href="https://github.com/magjangin/modding-support-tool/stargazers"><img src="https://img.shields.io/badge/Platform-Windows%20x64-0078D6?logo=windows&logoColor=white" alt="Windows" /></a>
-  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-green.svg" alt="License: MIT" /></a>
 </p>
 
 ---
@@ -137,9 +136,3 @@ modding-support-tool/
 # publish.bat 실행 또는 아래 명령어 수행
 dotnet publish ModdingSupportTool/ModdingSupportTool.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -o Publish
 ```
-
----
-
-## 📄 라이선스 (License)
-
-이 프로젝트는 [MIT License](LICENSE)에 따라 자유롭게 사용, 수정, 배포할 수 있습니다.
