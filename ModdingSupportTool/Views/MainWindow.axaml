@@ -1,0 +1,185 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:ModdingSupportTool.ViewModels"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        mc:Ignorable="d" d:DesignWidth="960" d:DesignHeight="760"
+        x:Class="ModdingSupportTool.Views.MainWindow"
+        x:DataType="vm:MainViewModel"
+        Icon="/Assets/avalonia-logo.ico"
+        Title="Modding Support Tool - Assembly Dumper"
+        Width="960" Height="760"
+        MinWidth="800" MinHeight="600"
+        WindowStartupLocation="CenterScreen">
+
+    <Design.DataContext>
+        <vm:MainViewModel />
+    </Design.DataContext>
+
+    <Grid RowDefinitions="Auto, Auto, Auto, Auto, *" Margin="20">
+
+        <!-- 1. Header / Engine Selection & Export Button -->
+        <Border Grid.Row="0" Background="#252526" CornerRadius="8" Padding="16" Margin="0,0,0,14">
+            <Grid ColumnDefinitions="*, Auto">
+                <StackPanel Grid.Column="0" VerticalAlignment="Center">
+                    <TextBlock Text="Assembly C# Dumper" FontSize="20" FontWeight="Bold" Foreground="#FFFFFF" />
+                    <TextBlock Text="Unity 백엔드 자동 판별 · 내장 SignatureDumper(Il2Cpp) 및 ilspycmd(Mono) 통합 툴" 
+                               FontSize="12" Foreground="#888888" Margin="0,4,0,0" />
+                </StackPanel>
+
+                <!-- Right Header: Engine Radio Group & Export Tool Button -->
+                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+                    <Border Background="#1E1E1E" CornerRadius="6" Padding="6">
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <RadioButton Content="SignatureDumper (앱 내장)"
+                                         GroupName="DumpEngineGroup"
+                                         IsChecked="{Binding IsSignatureDumperSelected, Mode=TwoWay}"
+                                         Padding="8,4" />
+                            <RadioButton Content="ilspycmd (Mono)"
+                                         GroupName="DumpEngineGroup"
+                                         IsChecked="{Binding IsIlSpySelected, Mode=TwoWay}"
+                                         Padding="8,4" />
+                        </StackPanel>
+                    </Border>
+
+                    <Button Content="📦 SignatureDumper 소스 내보내기" 
+                            Command="{Binding ExportSignatureDumperCommand}"
+                            Background="#383838" Foreground="#E0E0E0"
+                            Padding="10,6" ToolTip.Tip="임의의 폴더에 독립 실행 가능한 SignatureDumper 프로젝트 소스를 풀어줍니다." />
+                </StackPanel>
+            </Grid>
+        </Border>
+
+        <!-- 2. Input Assembly Settings -->
+        <Border Grid.Row="1" Background="#252526" CornerRadius="8" Padding="16" Margin="0,0,0,14">
+            <StackPanel Spacing="10">
+                <TextBlock Text="입력 어셈블리 설정" FontWeight="SemiBold" FontSize="14" Foreground="#E0E0E0" />
+
+                <!-- Input Path -->
+                <Grid ColumnDefinitions="*, 8, Auto, 6, Auto">
+                    <TextBox Grid.Column="0" Text="{Binding InputPath}" 
+                             PlaceholderText="게임 설치 폴더, 어셈블리 폴더(Il2CppAssemblies / Managed) 또는 DLL 파일 경로" />
+                    <Button Grid.Column="2" Content="폴더 선택" Command="{Binding SelectInputFolderCommand}" />
+                    <Button Grid.Column="4" Content="DLL 파일 선택" Command="{Binding SelectInputFileCommand}" />
+                </Grid>
+
+                <!-- Backend Detection Status Banner -->
+                <Border Background="#1C1C1E" CornerRadius="6" Padding="10,6" BorderBrush="#333333" BorderThickness="1">
+                    <Grid ColumnDefinitions="Auto, 8, Auto, 8, *, Auto, 12, Auto">
+                        <TextBlock Grid.Column="0" Text="엔진 판별:" FontWeight="SemiBold" FontSize="12" Foreground="#888888" VerticalAlignment="Center" />
+                        <Border Grid.Column="2" Background="#0E3D30" CornerRadius="4" Padding="8,2" VerticalAlignment="Center">
+                            <TextBlock Text="{Binding DetectedBackendText}" FontSize="11" FontWeight="Bold" Foreground="#4EC9B0" />
+                        </Border>
+                        <TextBlock Grid.Column="4" Text="{Binding DetectionReasonText}" FontSize="11" Foreground="#AAAAAA" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
+                        
+                        <CheckBox Grid.Column="5" Content="백엔드 기반 엔진 자동 전환" IsChecked="{Binding IsAutoDetectEnabled}" FontSize="12" VerticalAlignment="Center" />
+                        <Button Grid.Column="7" Content="재판별" Command="{Binding TriggerAutoDetectCommand}" FontSize="11" Padding="8,3" />
+                    </Grid>
+                </Border>
+
+                <!-- Quick Presets -->
+                <WrapPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="0,2,0,0">
+                    <TextBlock Text="빠른 프리셋:" FontSize="12" Foreground="#888888" VerticalAlignment="Center" Margin="0,0,8,0" />
+                    <Button Content="Muse Dash (Hwa - Il2Cpp)" FontSize="11" Padding="8,4" Margin="0,0,6,4"
+                            Command="{Binding ApplyPresetCommand}" CommandParameter="MuseDashHwa" />
+                    <Button Content="A Short Hike (Mono)" FontSize="11" Padding="8,4" Margin="0,0,6,4"
+                            Command="{Binding ApplyPresetCommand}" CommandParameter="ShortHikeMono" />
+                    <Button Content="Sixtar Gate (Il2Cpp)" FontSize="11" Padding="8,4" Margin="0,0,6,4"
+                            Command="{Binding ApplyPresetCommand}" CommandParameter="SixtarGate" />
+                    <Button Content="Steam Muse Dash" FontSize="11" Padding="8,4" Margin="0,0,6,4"
+                            Command="{Binding ApplyPresetCommand}" CommandParameter="SteamMuseDash" />
+                    <Button Content="Steam MiSide" FontSize="11" Padding="8,4" Margin="0,0,6,4"
+                            Command="{Binding ApplyPresetCommand}" CommandParameter="SteamMiSide" />
+                </WrapPanel>
+
+                <!-- Target Assemblies -->
+                <Grid ColumnDefinitions="140, *">
+                    <TextBlock Grid.Column="0" Text="대상 어셈블리:" VerticalAlignment="Center" FontSize="12" Foreground="#AAAAAA" />
+                    <TextBox Grid.Column="1" Text="{Binding TargetAssemblies}"
+                             PlaceholderText="Assembly-CSharp.dll, Assembly-CSharp-firstpass.dll (쉼표로 구분)" />
+                </Grid>
+            </StackPanel>
+        </Border>
+
+        <!-- 3. Output & Options -->
+        <Border Grid.Row="2" Background="#252526" CornerRadius="8" Padding="16" Margin="0,0,0,14">
+            <StackPanel Spacing="10">
+                <TextBlock Text="출력 위치 및 엔진 옵션" FontWeight="SemiBold" FontSize="14" Foreground="#E0E0E0" />
+
+                <!-- Output Path -->
+                <Grid ColumnDefinitions="*, 8, Auto, 6, Auto">
+                    <TextBox Grid.Column="0" Text="{Binding OutputPath}" 
+                             PlaceholderText="디컴파일/덤프 결과를 저장할 출력 폴더를 지정하세요" />
+                    <Button Grid.Column="2" Content="출력 폴더 선택" Command="{Binding SelectOutputFolderCommand}" />
+                    <Button Grid.Column="4" Content="탐색기 열기" Command="{Binding OpenOutputFolderCommand}" />
+                </Grid>
+
+                <!-- Engine specific options -->
+                <StackPanel Spacing="8" Margin="0,4,0,0">
+                    <!-- SignatureDumper options -->
+                    <Border Background="#1E1E1E" CornerRadius="4" Padding="10,6" IsVisible="{Binding IsSignatureDumperSelected}">
+                        <Grid ColumnDefinitions="*, Auto">
+                            <TextBlock Grid.Column="0" 
+                                       Text="⚡ SignatureDumper 코어가 앱 내부에 완전 내장(In-Process)되어 외부 종속성 없이 즉시 실행됩니다." 
+                                       VerticalAlignment="Center" FontSize="12" Foreground="#4EC9B0" />
+                            <Button Grid.Column="1" Content="독립 프로젝트 소스 내보내기" 
+                                    Command="{Binding ExportSignatureDumperCommand}" 
+                                    FontSize="11" Padding="8,3" />
+                        </Grid>
+                    </Border>
+
+                    <!-- ilspycmd options -->
+                    <StackPanel Orientation="Horizontal" Spacing="16" IsVisible="{Binding IsIlSpySelected}">
+                        <CheckBox Content="프로젝트 파일 생성 (-p)" IsChecked="{Binding IlSpyCreateProject}" />
+                        <CheckBox Content="네임스페이스 폴더 분할 (--nested-directories)" IsChecked="{Binding IlSpyNestedDirectories}" />
+                    </StackPanel>
+                </StackPanel>
+            </StackPanel>
+        </Border>
+
+        <!-- 4. Execution Controls -->
+        <Border Grid.Row="3" Background="#252526" CornerRadius="8" Padding="16" Margin="0,0,0,14">
+            <Grid ColumnDefinitions="Auto, 8, Auto, 8, Auto, *, Auto">
+                <Button Grid.Column="0" Content="덤프 시작" 
+                        Command="{Binding StartDumpCommand}"
+                        Background="#0E639C" Foreground="#FFFFFF"
+                        FontWeight="Bold" Padding="16,8" />
+                <Button Grid.Column="2" Content="작업 중지" 
+                        Command="{Binding CancelDumpCommand}"
+                        Background="#C5221F" Foreground="#FFFFFF"
+                        Padding="14,8" />
+                <Button Grid.Column="4" Content="로그 비우기" 
+                        Command="{Binding ClearLogCommand}"
+                        Padding="12,8" />
+
+                <StackPanel Grid.Column="6" Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
+                    <ProgressBar IsIndeterminate="{Binding IsBusy}" 
+                                 IsVisible="{Binding IsBusy}" 
+                                 Width="120" Height="6" />
+                    <TextBlock Text="{Binding StatusMessage}" 
+                               FontWeight="SemiBold" 
+                               Foreground="#569CD6" 
+                               VerticalAlignment="Center" />
+                </StackPanel>
+            </Grid>
+        </Border>
+
+        <!-- 5. Real-time Output Log Terminal -->
+        <Border Grid.Row="4" Background="#181818" CornerRadius="8" BorderBrush="#333333" BorderThickness="1" Padding="10">
+            <Grid RowDefinitions="Auto, *">
+                <TextBlock Grid.Row="0" Text="실시간 실행 로그" FontSize="11" Foreground="#666666" Margin="4,0,0,6" />
+                <ScrollViewer Grid.Row="1" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto">
+                    <TextBox Text="{Binding LogOutput}"
+                             IsReadOnly="True"
+                             FontFamily="Cascadia Code, Consolas, Courier New"
+                             FontSize="12"
+                             Background="Transparent"
+                             BorderThickness="0"
+                             Foreground="#D4D4D4"
+                             TextWrapping="Wrap" />
+                </ScrollViewer>
+            </Grid>
+        </Border>
+
+    </Grid>
+</Window>
