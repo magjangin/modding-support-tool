@@ -261,8 +261,8 @@ public partial class MainViewModel : ViewModelBase
                 IlSpyNestedDirectories = IlSpyNestedDirectories
             };
 
-            await _dumpService.RunDumpAsync(request, AppendLog, _cts.Token);
-            StatusMessage = "덤프 완료";
+            var result = await _dumpService.RunDumpAsync(request, AppendLog, _cts.Token);
+            StatusMessage = result.IsSuccess ? "덤프 완료" : "덤프 실패 (로그 확인)";
         }
         catch (OperationCanceledException)
         {

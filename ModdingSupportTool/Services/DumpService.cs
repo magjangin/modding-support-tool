@@ -19,20 +19,26 @@ public class DumpRequest
     public bool IlSpyNestedDirectories { get; set; } = true;
 }
 
+public sealed record DumpResult(int SucceededCount, int FailedCount)
+{
+    // 하나 이상 덤프했고 실패가 없어야 성공이다. (대상 파일이 하나도 없으면 실패)
+    public bool IsSuccess => SucceededCount > 0 && FailedCount == 0;
+}
+
 public class DumpService
 {
-    public async Task RunDumpAsync(DumpRequest request, Action<string> log, CancellationToken ct)
+    public async Task<DumpResult> RunDumpAsync(DumpRequest request, Action<string> log, CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(request.InputPath))
         {
             log("[오류] 입력 경로가 지정되지 않았습니다.");
-            return;
+            return new DumpResult(0, 0);
         }
 
         if (string.IsNullOrWhiteSpace(request.OutputDirectory))
         {
             log("[오류] 출력 폴더가 지정되지 않았습니다.");
-            return;
+            return new DumpResult(0, 0);
         }
 
         bool isFile = File.Exists(request.InputPath);
@@ -41,7 +47,7 @@ public class DumpService
         if (!isFile && !isDir)
         {
             log($"[오류] 지정된 입력 경로가 존재하지 않습니다: {request.InputPath}");
-            return;
+            return new DumpResult(0, 0);
         }
 
         Directory.CreateDirectory(request.OutputDirectory);
@@ -53,21 +59,25 @@ public class DumpService
         log($"시각: {DateTime.Now:yyyy-MM-dd HH:mm:ss}");
         log("----------------------------------------");
 
-        if (request.Engine == DumpEngineType.SignatureDumper)
-        {
-            await RunSignatureDumperAsync(request, isFile, log, ct);
-        }
-        else
-        {
-            await RunIlSpyCmdAsync(request, isFile, log, ct);
-        }
+        DumpResult result = request.Engine == DumpEngineType.SignatureDumper
+            ? await RunSignatureDumperAsync(request, isFile, log, ct)
+            : await RunIlSpyCmdAsync(request, isFile, log, ct);
 
         log("----------------------------------------");
         log($"=== 덤프 작업 완료 ({DateTime.Now:yyyy-MM-dd HH:mm:ss}) ===");
+        log($"결과: 성공 {result.SucceededCount}개, 실패 {result.FailedCount}개");
+        if (result.SucceededCount == 0 && result.FailedCount == 0)
+        {
+            log("[경고] 덤프된 어셈블리가 없습니다. 입력 폴더에 대상 어셈블리가 있는지 확인하세요.");
+        }
+
+        return result;
     }
 
-    private async Task RunSignatureDumperAsync(DumpRequest request, bool isFile, Action<string> log, CancellationToken ct)
+    private async Task<DumpResult> RunSignatureDumperAsync(DumpRequest request, bool isFile, Action<string> log, CancellationToken ct)
     {
+        int succeeded = 0;
+        int failed = 0;
         string inputDir = isFile ? Path.GetDirectoryName(request.InputPath)! : request.InputPath;
         string[] targets;
 
@@ -118,6 +128,7 @@ public class DumpService
                 }, ct);
 
                 log($"  [완료] {targetName}");
+                succeeded++;
             }
             catch (OperationCanceledException)
             {
@@ -126,12 +137,17 @@ public class DumpService
             catch (Exception ex)
             {
                 log($"  [실패] {targetName}: {ex.Message}");
+                failed++;
             }
         }
+
+        return new DumpResult(succeeded, failed);
     }
 
-    private async Task RunIlSpyCmdAsync(DumpRequest request, bool isFile, Action<string> log, CancellationToken ct)
+    private async Task<DumpResult> RunIlSpyCmdAsync(DumpRequest request, bool isFile, Action<string> log, CancellationToken ct)
     {
+        int succeeded = 0;
+        int failed = 0;
         string[] targetFiles;
 
         if (isFile)
@@ -153,7 +169,7 @@ public class DumpService
             if (targetFiles.Length == 0)
             {
                 log($"[경고] 지정된 폴더에서 일치하는 타겟 어셈블리를 찾을 수 없습니다: {request.TargetAssemblyNames}");
-                return;
+                return new DumpResult(0, 0);
             }
         }
 
@@ -172,11 +188,15 @@ public class DumpService
             string arguments = $"{flags} -o \"{moduleOutDir}\" \"{dllPath}\"";
             log($"[ilspycmd 실행] {dllPath} -> {moduleOutDir}");
 
-            await ExecuteProcessAsync("ilspycmd", arguments, log, ct);
+            if (await ExecuteProcessAsync("ilspycmd", arguments, log, ct)) succeeded++;
+            else failed++;
         }
+
+        return new DumpResult(succeeded, failed);
     }
 
-    private async Task ExecuteProcessAsync(string fileName, string arguments, Action<string> log, CancellationToken ct)
+    // 프로세스가 정상 실행되어 종료 코드 0으로 끝나면 true
+    private async Task<bool> ExecuteProcessAsync(string fileName, string arguments, Action<string> log, CancellationToken ct)
     {
         var psi = new ProcessStartInfo
         {
@@ -217,7 +237,10 @@ public class DumpService
             if (process.ExitCode != 0)
             {
                 log($"[프로세스 종료 코드: {process.ExitCode}]");
+                return false;
             }
+
+            return true;
         }
         catch (OperationCanceledException)
         {
@@ -227,6 +250,7 @@ public class DumpService
         catch (Exception ex)
         {
             log($"[프로세스 실행 실패] {ex.Message}");
+            return false;
         }
     }
 }

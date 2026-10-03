@@ -33,6 +33,12 @@ public static class CliRunner
                 return 1;
             }
         }
+        else if (!File.Exists(inputPath) && !Directory.Exists(inputPath))
+        {
+            Console.Error.WriteLine($"[오류] 지정된 입력 경로가 존재하지 않습니다: {inputPath}");
+            PrintUsage();
+            return 1;
+        }
 
         Console.WriteLine($"[입력 경로] {inputPath}");
         Console.WriteLine($"[출력 폴더] {outputPath}");
@@ -97,7 +103,13 @@ public static class CliRunner
 
         try
         {
-            await dumpService.RunDumpAsync(request, line => Console.WriteLine(line), cts.Token);
+            var result = await dumpService.RunDumpAsync(request, line => Console.WriteLine(line), cts.Token);
+            if (!result.IsSuccess)
+            {
+                Console.Error.WriteLine($"\n[실패] 덤프에 실패했습니다. (성공 {result.SucceededCount}개, 실패 {result.FailedCount}개) 위 로그를 확인하세요.");
+                return 3;
+            }
+
             Console.WriteLine("\n[성공] 모든 작업이 성공적으로 완료되었습니다!");
             Console.WriteLine($"결과물 위치: {outputPath}");
             return 0;

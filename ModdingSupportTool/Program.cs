@@ -15,11 +15,14 @@ sealed class Program
 
     private const int AttachParentProcess = -1;
 
+    private static readonly string[] CliFlags =
+        { "--cli", "--auto", "-i", "--input", "-o", "--output", "-t", "--targets" };
+
     [STAThread]
     public static int Main(string[] args)
     {
         // CLI 인자가 전달되었을 경우 콘솔 자동 실행 모드로 진입
-        if (args.Length > 0 && (args[0] == "--cli" || args[0] == "--auto" || !args[0].StartsWith("-")))
+        if (args.Length > 0 && (Array.IndexOf(CliFlags, args[0]) >= 0 || !args[0].StartsWith("-")))
         {
             if (!AttachConsole(AttachParentProcess))
             {
