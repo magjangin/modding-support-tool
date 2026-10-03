@@ -20,7 +20,7 @@
 
 **Modding Support Tool**은 Unity 엔진 기반 게임의 모딩과 리버스 엔지니어링 분석을 가속화하기 위해 제작된 데스크톱 GUI 및 CLI 툴입니다.
 
-분석하고자 하는 게임의 설치 경로 또는 어셈블리(`.dll`)를 지정하면, 도구가 **Mono인지 Il2Cpp인지 백엔드를 100% 자동 판별**하여 최적화된 엔진으로 C# 소스 코드 또는 시그니처 스켈레톤을 한 번에 뽑아냅니다.
+분석하고자 하는 게임의 설치 경로 또는 어셈블리(`.dll`)를 지정하면, 도구가 **Mono인지 Il2Cpp인지 백엔드를 자동 판별**하여 최적화된 엔진으로 C# 소스 코드 또는 시그니처 스켈레톤을 한 번에 뽑아냅니다.
 
 ### 🔄 지원 백엔드별 처리 전략
 
@@ -41,8 +41,10 @@
   - `MelonLoader/Il2CppAssemblies` 폴더가 존재하면 자동으로 분석 타겟 경로를 보정합니다.
 - ⚡ **외부 의존성 제로 내장 시그니처 덤퍼 (`BuiltinSignatureDumper`)**:
   - `AssemblyLoadContext(isCollectible: true)`를 활용하여 분석 중인 DLL 파일 잠금(Lock) 없이 안전하게 메모리에 로드 후 언로드합니다.
-  - 접근 제어자(`public`/`private`/`protected`), 클래스/구조체/인터페이스/열거형, 상속, 프로퍼티(Getter/Setter), 파라미터(`ref`/`out`/`params`/기본값) 완벽 복원.
-  - 단일 파일 덤프가 아닌 네임스페이스 경로별 분할 C# 소스 파일(`Decompiled/<ModuleName>/<Namespace>/<Type>.cs`) 생성.
+  - 접근 제어자(`public`/`private`/`protected`), 클래스/구조체/인터페이스/열거형, 상속, `virtual`/`override`, 프로퍼티(Getter/Setter), 파라미터(`ref`/`out`/`params`/기본값) 복원.
+    (Il2CppInterop 어셈블리는 모든 멤버를 `public`으로 노출하므로 Il2Cpp 게임의 원래 접근 제어자는 알 수 없습니다.)
+  - 단일 파일 덤프가 아닌 네임스페이스 경로별 분할 C# 소스 파일(`Decompiled/<ModuleName>/<Namespace>/<Type>.cs`) 생성. 중첩 타입은 `<Outer>.<Inner>.cs`로 따로 저장됩니다.
+  - `using`은 실제로 참조하는 네임스페이스로 만들고, `System`/`Il2CppSystem`처럼 같은 이름이 겹치는 타입엔 네임스페이스를 붙여 헷갈리지 않게 합니다.
 - 🎨 **모던 Avalonia 다크 테마 GUI**:
   - Visual Studio 감성의 직관적인 Dark Fluent 인터페이스.
   - 백엔드 감지 상태 뱃지, 실시간 가상 콘솔 터미널 로그 뷰어, 작업 취소(`CancellationToken`) 지원.
@@ -127,12 +129,12 @@ modding-support-tool/
 
 ## 🛠️ 요구 사항 및 빌드
 
-- **런타임 / SDK**: [.NET 10.0 SDK](https://dotnet.microsoft.com/download) 이상
+- **런타임 / SDK**: [.NET 10.0 SDK](https://dotnet.microsoft.com/download) 이상 (`publish.bat` 배포본은 런타임 포함(self-contained)이 아니므로 실행하는 PC에 .NET 10 런타임이 필요합니다)
 - **지원 OS**: Windows 10 / 11 (x64)
 - **Mono 디컴파일 선택 사항**: `ilspycmd` 도구 (`dotnet tool install -g ilspycmd`)
 
 ### 배포 바이너리 빌드
 ```powershell
 # publish.bat 실행 또는 아래 명령어 수행
-dotnet publish ModdingSupportTool/ModdingSupportTool.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -o Publish
+dotnet publish ModdingSupportTool/ModdingSupportTool.csproj -c Release -r win-x64 --self-contained false -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -o Publish
 ```

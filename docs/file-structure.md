@@ -12,7 +12,7 @@
 | :--- | :---: | :--- |
 | [`ModdingSupportTool.slnx`](file:///h:/source/repos/modding%20support%20tool/ModdingSupportTool.slnx) | 파일 | Visual Studio 2022 v17.10+ 최신 XML 기반 가벼운 솔루션 선언 파일. |
 | [`run_dump.bat`](file:///h:/source/repos/modding%20support%20tool/run_dump.bat) | 스크립트 | **원클릭 및 드래그 앤 드롭 덤프 스크립트**.<br>• 폴더/DLL 드래그 시 즉시 해당 경로 덤프 수행.<br>• 더블 클릭 시 `PresetService` 기본 경로로 자동 실행.<br>• 실행 파일 부재 시 `publish.bat` 자동 연계 빌드. |
-| [`publish.bat`](file:///h:/source/repos/modding%20support%20tool/publish.bat) | 스크립트 | **배포 빌드 스크립트**.<br>`dotnet publish`를 실행하여 런타임 종속성 없이 단독 실행 가능한 `Publish/ModdingSupportTool.exe` (.NET 10 self-contained win-x64)를 빌드합니다. |
+| [`publish.bat`](file:///h:/source/repos/modding%20support%20tool/publish.bat) | 스크립트 | **배포 빌드 스크립트**.<br>`dotnet publish`를 실행하여 단일 파일 `Publish/ModdingSupportTool.exe` (win-x64, 런타임 미포함 framework-dependent)를 빌드합니다. 실행하려면 .NET 10 런타임이 필요합니다. |
 | [`.gitignore`](file:///h:/source/repos/modding%20support%20tool/.gitignore) | 설정 | `bin/`, `obj/`, 빌드 아티팩트 및 임시 캐시 파일을 Git 추적에서 제외합니다. |
 | [`README.md`](file:///h:/source/repos/modding%20support%20tool/README.md) | 문서 | 프로젝트 소개, 빠른 시작, 기능 요약 및 문서 인덱스. |
 | [`docs/`](file:///h:/source/repos/modding%20support%20tool/docs) | 폴더 | 세부 기술 문서 및 아키텍처 가이드가 모여 있는 디렉터리. |
@@ -75,8 +75,9 @@
   - `AssemblyLoadContext(isCollectible: true)`를 사용하여 대상 DLL을 파일 잠금 없이 동적 로드.
   - `alc.Resolving` 핸들러로 MelonLoader 런타임 의존성(`net6`, `net472`, `net35`, `Dependencies/SupportModules`)을 자동 해석.
   - 클래스, 구조체, 인터페이스, 열거형, 델리게이트 식별.
-  - 필드, 프로퍼티(get/set 접근자 분리), 메서드 시그니처(`ref`, `out`, `params`, 기본값), 제네릭 완벽 복원.
-  - 네임스페이스별 `Decompiled/<ModuleName>/<Namespace>/<TypeName>.cs` 스켈레톤 소스 생성.
+  - 필드, 프로퍼티(get/set 접근자 분리), 메서드 시그니처(`ref`, `out`, `params`, 기본값, `virtual`/`override`), 제네릭 복원.
+  - 파일마다 실제로 참조하는 네임스페이스로 `using`을 만들고, 이름이 겹치는 타입(예: `System.IntPtr`/`Il2CppSystem.IntPtr`)엔 네임스페이스를 붙임.
+  - 네임스페이스별 `Decompiled/<ModuleName>/<Namespace>/<TypeName>.cs` 스켈레톤 소스 생성. 중첩 타입은 `<Outer>.<Inner>.cs`, 글로벌 타입은 `Global/` 폴더.
 - [`SignatureDumperExporter.cs`](file:///h:/source/repos/modding%20support%20tool/ModdingSupportTool/Core/SignatureDumperExporter.cs):
   - 내장 덤퍼 로직을 외부 폴더에 독립 실행형 프로젝트(`net472;net8.0` 멀티타깃 `.csproj` + `Program.cs` + `SignatureDumper.cs`)로 추출/방출하는 툴 생성기.
 
@@ -119,7 +120,7 @@
   - 모든 뷰모델의 기본 클래스 (`CommunityToolkit.Mvvm.ComponentModel.ObservableObject` 상속).
 - [`MainViewModel.cs`](file:///h:/source/repos/modding%20support%20tool/ModdingSupportTool/ViewModels/MainViewModel.cs):
   - GUI 전체 상태를 관장하는 메인 뷰모델.
-  - 입력 경로 변경 시 디바운스 백엔드 감지(`UnityBackendDetector.Detect`).
+  - 입력 경로가 바뀔 때마다 백엔드 감지(`UnityBackendDetector.Detect`).
   - Il2Cpp <-> Mono에 따른 라디오 버튼 및 옵션 UI 자동 전환.
   - 덤프 시작(`StartDumpCommand`), 취소(`CancelDumpCommand`), 로그 지우기, 탐색기 열기, 프리셋 적용 커맨드 제공.
 

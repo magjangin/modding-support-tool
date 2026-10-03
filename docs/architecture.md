@@ -45,7 +45,7 @@ flowchart TD
 
 ## 2. Unity 백엔드 판별 로직 상세 ([`UnityBackendDetector.cs`](file:///h:/source/repos/modding%20support%20tool/ModdingSupportTool/Core/Detection/UnityBackendDetector.cs))
 
-Unity 게임은 빌드 시점에 어떤 백엔드를 사용했는지에 따라 파일 구조가 확연히 다릅니다. 본 도구는 이를 휴리스틱 및 시그니처 파일 체크를 통해 100% 자동 판별합니다.
+Unity 게임은 빌드 시점에 어떤 백엔드를 사용했는지에 따라 파일 구조가 확연히 다릅니다. 본 도구는 이를 휴리스틱 및 시그니처 파일 체크를 통해 자동 판별합니다. 마커를 찾지 못하면 `Unknown`으로 표시합니다.
 
 ```mermaid
 flowchart TD
@@ -89,12 +89,22 @@ Il2Cpp 게임의 경우 MelonLoader가 생성한 더미 어셈블리(`.dll`)를 
   - **상속 및 구현**: 베이스 클래스 및 모든 인터페이스 목록.
   - **필드 & 상수**: `const`, `static`, `readonly`, 접근 제어자, 기본 리터럴 값.
   - **프로퍼티**: `get;`, `set;`의 개별 접근 제어자(예: `public int Value { get; private set; }`).
-  - **생성자 & 메서드**: 리턴 타입, 제네릭 인자, 파라미터(`ref`, `out`, `params`, 디폴트 인자).
+  - **생성자 & 메서드**: 리턴 타입, 제네릭 인자, 파라미터(`ref`, `out`, `params`, 디폴트 인자), `virtual`/`override`/`sealed override` 구분. 정적 생성자는 `static TypeName();`으로 표시합니다.
+- Il2CppInterop 어셈블리는 모든 멤버를 `public`으로 노출하므로, Il2Cpp 게임에서는 원래 접근 제어자를 알 수 없습니다.
 
-### 3) 소스 파일 분할 생성
+### 3) 타입 이름 표기 (using 생성)
+- 파일마다 실제로 참조하는 타입의 네임스페이스로 `using`을 만듭니다.
+- 현재 네임스페이스와 using 네임스페이스 중 두 곳 이상에 같은 이름의 타입이 있으면 네임스페이스를 붙여 표기합니다.
+  - 예: `Il2CppSystem.Object`와 `UnityEngine.Object`, `System.IntPtr`와 `Il2CppSystem.IntPtr`
+  - 그래서 `List<GameObject>`처럼 이름만 나오면 파일 위쪽 using에 있는 단 하나의 `List`(예: `Il2CppSystem.Collections.Generic`)를 뜻합니다.
+- 이름 충돌은 덤프를 실행한 .NET 런타임의 기본 라이브러리 기준으로 판단합니다. 그래서 앱 내장 덤퍼(.NET 10)와 독립 SignatureDumper(.NET 8)의 표기가 드물게 다를 수 있습니다. (예: .NET 10에 새로 생긴 `System.EventHandler<TSender, TEventArgs>`)
+
+### 4) 소스 파일 분할 생성
 - 전체 클래스가 한 파일에 뭉쳐 있으면 검색 및 Git 형상 관리가 어렵기 때문에, 각 타입별로 독립된 `.cs` 파일을 생성합니다:
   - **저장 규칙**: `<OutputDirectory>/<Namespace>/<TypeName>.cs`
-  - 네임스페이스가 없는 글로벌 타입은 `<OutputDirectory>/<TypeName>.cs`에 직접 저장됩니다.
+  - **중첩 타입**: `<OutputDirectory>/<Namespace>/<Outer>.<Inner>.cs`로 따로 저장하고, 파일 안에 `// Nested in: <Outer>` 주석을 남깁니다. (바깥 타입이 다른 같은 이름의 중첩 타입끼리 덮어쓰지 않도록)
+  - 네임스페이스가 없는 글로벌 타입은 `<OutputDirectory>/Global/<TypeName>.cs`에 저장됩니다.
+  - 대소문자만 다른 경로가 겹치면 `<TypeName>_2.cs`처럼 번호를 붙입니다.
 - 분석이 끝나면 ALC를 언로드(`alc.Unload()`)하여 파일 핸들과 메모리를 즉시 반환합니다.
 
 ---
