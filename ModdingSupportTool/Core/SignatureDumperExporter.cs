@@ -69,6 +69,9 @@ namespace SignatureDumper
             Console.WriteLine($""출력 폴더 : {outputDir}"");
             Console.WriteLine();
 
+            int succeeded = 0;
+            int failed = 0;
+
             foreach (string targetName in targets)
             {
                 string dllPath = Path.Combine(gameAssembliesDir, targetName.Trim());
@@ -81,7 +84,14 @@ namespace SignatureDumper
                 string moduleOutputDir = Path.Combine(outputDir, Path.GetFileNameWithoutExtension(targetName.Trim()));
                 if (Directory.Exists(moduleOutputDir))
                 {
-                    Directory.Delete(moduleOutputDir, recursive: true);
+                    try
+                    {
+                        Directory.Delete(moduleOutputDir, recursive: true);
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.Error.WriteLine($""[경고] 이전 출력 폴더를 지우지 못해 예전 파일이 남을 수 있습니다: {moduleOutputDir} ({ex.Message})"");
+                    }
                 }
 
                 Console.WriteLine($""시그니처 덤프 중: {targetName} -> {moduleOutputDir}"");
@@ -99,14 +109,25 @@ namespace SignatureDumper
                     dumper.Dump();
 
                     Console.WriteLine($""  완료: {targetName}"");
+                    succeeded++;
                 }
                 catch (Exception ex)
                 {
                     Console.Error.WriteLine($""  [실패] {targetName}: {ex.Message}"");
+                    failed++;
                 }
             }
 
             Console.WriteLine();
+            Console.WriteLine($""결과: 성공 {succeeded}개, 실패 {failed}개"");
+
+            // 하나도 덤프하지 못했거나 실패가 있으면 종료 코드 3 (앱 CLI와 같은 규칙)
+            if (succeeded == 0 || failed > 0)
+            {
+                Console.Error.WriteLine(""[실패] 덤프된 어셈블리가 없거나 일부가 실패했습니다."");
+                return 3;
+            }
+
             Console.WriteLine(""모든 작업이 끝났습니다."");
             return 0;
         }
@@ -148,6 +169,7 @@ namespace SignatureDumper
         string signatureDumperContent = """
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Reflection;
@@ -370,7 +392,7 @@ namespace SignatureDumper
                 string val = "";
                 if (field.IsLiteral && !field.IsInitOnly)
                 {
-                    try { val = $" = {field.GetRawConstantValue()}"; } catch { }
+                    try { val = $" = {FormatLiteral(field.GetRawConstantValue())}"; } catch { }
                 }
                 info.Fields.Add($"{mods} {fType} {field.Name}{val};");
             }
@@ -428,19 +450,57 @@ namespace SignatureDumper
 
             if (p.HasDefaultValue)
             {
-                if (p.DefaultValue == null) def = " = null";
-                else if (p.DefaultValue is string s) def = $" = \"{s}\"";
-                else if (p.DefaultValue is bool b) def = $" = {(b ? "true" : "false")}";
-                else def = $" = {p.DefaultValue}";
+                def = $" = {FormatLiteral(p.DefaultValue)}";
             }
 
             return $"{prefix}{typeName} {p.Name}{def}";
         }
 
+        // 상수/기본값을 C# 리터럴 형태로 표기한다. (문자열 따옴표·이스케이프, true/false, 문화권과 무관한 숫자)
+        private static string FormatLiteral(object value)
+        {
+            switch (value)
+            {
+                case null: return "null";
+                case string s: return "\"" + EscapeLiteral(s, '"') + "\"";
+                case char c: return "'" + EscapeLiteral(c.ToString(), '\'') + "'";
+                case bool b: return b ? "true" : "false";
+                case IFormattable f: return f.ToString(null, CultureInfo.InvariantCulture);
+                default: return value.ToString() ?? string.Empty;
+            }
+        }
+
+        private static string EscapeLiteral(string text, char quote)
+        {
+            var sb = new StringBuilder(text.Length);
+            foreach (char c in text)
+            {
+                switch (c)
+                {
+                    case '\\': sb.Append(@"\\"); break;
+                    case '\0': sb.Append(@"\0"); break;
+                    case '\n': sb.Append(@"\n"); break;
+                    case '\r': sb.Append(@"\r"); break;
+                    case '\t': sb.Append(@"\t"); break;
+                    default:
+                        if (c == quote) sb.Append('\\').Append(c);
+                        else if (char.IsControl(c)) sb.Append($"\\u{(int)c:X4}");
+                        else sb.Append(c);
+                        break;
+                }
+            }
+            return sb.ToString();
+        }
+
         private string GetFieldModifiers(FieldInfo f)
         {
-            string access = f.IsPublic ? "public" : (f.IsPrivate ? "private" : (f.IsFamily ? "protected" : "internal"));
-            if (f.IsLiteral) return $"public const";
+            string access = f.IsPublic ? "public"
+                : f.IsPrivate ? "private"
+                : f.IsFamily ? "protected"
+                : f.IsFamilyOrAssembly ? "protected internal"
+                : f.IsFamilyAndAssembly ? "private protected"
+                : "internal";
+            if (f.IsLiteral) return $"{access} const";
             if (f.IsStatic && f.IsInitOnly) return $"{access} static readonly";
             if (f.IsStatic) return $"{access} static";
             if (f.IsInitOnly) return $"{access} readonly";
@@ -740,6 +800,12 @@ dotnet run
 # 실행 인자 전달: [inputDir] [outputDir] [target1,target2,...]
 dotnet run -- ""H:\muse dash hwa\MelonLoader\Il2CppAssemblies"" ""./Decompiled"" ""Assembly-CSharp.dll,Assembly-CSharp-firstpass.dll""
 ```
+
+## 종료 코드
+
+- `0`: 성공 (어셈블리를 하나 이상 덤프했고 실패가 없음)
+- `1`: 입력 폴더를 찾을 수 없음
+- `3`: 덤프 실패 (대상 어셈블리를 하나도 덤프하지 못했거나 일부가 실패)
 ";
 
         await File.WriteAllTextAsync(Path.Combine(destinationDir, "SignatureDumper.csproj"), csprojContent, Encoding.UTF8);

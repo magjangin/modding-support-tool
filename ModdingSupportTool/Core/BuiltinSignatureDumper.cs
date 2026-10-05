@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Reflection;
@@ -241,7 +242,7 @@ public class BuiltinSignatureDumper
             string val = "";
             if (field.IsLiteral && !field.IsInitOnly)
             {
-                try { val = $" = {field.GetRawConstantValue()}"; } catch { }
+                try { val = $" = {FormatLiteral(field.GetRawConstantValue())}"; } catch { }
             }
             info.Fields.Add($"{mods} {fType} {field.Name}{val};");
         }
@@ -299,19 +300,54 @@ public class BuiltinSignatureDumper
 
         if (p.HasDefaultValue)
         {
-            if (p.DefaultValue == null) def = " = null";
-            else if (p.DefaultValue is string s) def = $" = \"{s}\"";
-            else if (p.DefaultValue is bool b) def = $" = {(b ? "true" : "false")}";
-            else def = $" = {p.DefaultValue}";
+            def = $" = {FormatLiteral(p.DefaultValue)}";
         }
 
         return $"{prefix}{typeName} {p.Name}{def}";
     }
 
+    // 상수/기본값을 C# 리터럴 형태로 표기한다. (문자열 따옴표·이스케이프, true/false, 문화권과 무관한 숫자)
+    private static string FormatLiteral(object? value) => value switch
+    {
+        null => "null",
+        string s => "\"" + EscapeLiteral(s, '"') + "\"",
+        char c => "'" + EscapeLiteral(c.ToString(), '\'') + "'",
+        bool b => b ? "true" : "false",
+        IFormattable f => f.ToString(null, CultureInfo.InvariantCulture),
+        _ => value.ToString() ?? string.Empty
+    };
+
+    private static string EscapeLiteral(string text, char quote)
+    {
+        var sb = new StringBuilder(text.Length);
+        foreach (char c in text)
+        {
+            switch (c)
+            {
+                case '\\': sb.Append(@"\\"); break;
+                case '\0': sb.Append(@"\0"); break;
+                case '\n': sb.Append(@"\n"); break;
+                case '\r': sb.Append(@"\r"); break;
+                case '\t': sb.Append(@"\t"); break;
+                default:
+                    if (c == quote) sb.Append('\\').Append(c);
+                    else if (char.IsControl(c)) sb.Append($"\\u{(int)c:X4}");
+                    else sb.Append(c);
+                    break;
+            }
+        }
+        return sb.ToString();
+    }
+
     private string GetFieldModifiers(FieldInfo f)
     {
-        string access = f.IsPublic ? "public" : (f.IsPrivate ? "private" : (f.IsFamily ? "protected" : "internal"));
-        if (f.IsLiteral) return $"public const";
+        string access = f.IsPublic ? "public"
+            : f.IsPrivate ? "private"
+            : f.IsFamily ? "protected"
+            : f.IsFamilyOrAssembly ? "protected internal"
+            : f.IsFamilyAndAssembly ? "private protected"
+            : "internal";
+        if (f.IsLiteral) return $"{access} const";
         if (f.IsStatic && f.IsInitOnly) return $"{access} static readonly";
         if (f.IsStatic) return $"{access} static";
         if (f.IsInitOnly) return $"{access} readonly";
