@@ -59,12 +59,13 @@ public static class UnityBackendDetector
         }
 
         // MelonLoader/Il2CppAssemblies 안의 DLL 파일인 경우
+        // 폴더를 추천하면 선택한 DLL 대신 대상 어셈블리 목록(Assembly-CSharp 등)이 덤프되므로 파일 경로를 그대로 둔다.
         if (dir.Contains("Il2CppAssemblies", StringComparison.OrdinalIgnoreCase))
         {
             return new UnityDetectionResult(
                 UnityBackend.Il2Cpp,
                 "MelonLoader Il2Cpp 어셈블리 폴더 내 파일 (Il2CppAssemblies)",
-                dir);
+                filePath);
         }
 
         // 상위 디렉터리에서 Unity 백엔드 분석 수행
