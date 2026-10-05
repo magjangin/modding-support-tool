@@ -105,6 +105,7 @@ Il2Cpp 게임의 경우 MelonLoader가 생성한 더미 어셈블리(`.dll`)를 
   - **중첩 타입**: `<OutputDirectory>/<Namespace>/<Outer>.<Inner>.cs`로 따로 저장하고, 파일 안에 `// Nested in: <Outer>` 주석을 남깁니다. (바깥 타입이 다른 같은 이름의 중첩 타입끼리 덮어쓰지 않도록)
   - 네임스페이스가 없는 글로벌 타입은 `<OutputDirectory>/Global/<TypeName>.cs`에 저장됩니다.
   - 대소문자만 다른 경로가 겹치면 `<TypeName>_2.cs`처럼 번호를 붙입니다.
+- 덤프 전에 `<Output>/<ModuleName>` 폴더를 비워서, 게임 업데이트로 사라진 타입의 예전 파일이 섞이지 않게 합니다.
 - 분석이 끝나면 ALC를 언로드(`alc.Unload()`)하여 파일 핸들과 메모리를 즉시 반환합니다.
 
 ---
@@ -119,3 +120,4 @@ Il2Cpp 게임의 경우 MelonLoader가 생성한 더미 어셈블리(`.dll`)를 
     - `-o "<OutputDir>"`: 디컴파일 결과 출력 위치
   - 표준 출력(stdout) 및 표준 에러(stderr) 스트림을 비동기 가로채어 GUI/CLI 실시간 터미널 화면에 뿌려줍니다.
   - 작업 취소 시 프로세스 트리 전체를 정리(`Kill(entireProcessTree: true)`)하여 좀비 프로세스를 방지합니다.
+  - 실행 전에 `<Output>/<ModuleName>` 폴더를 비웁니다. `ilspycmd`는 기존 파일을 지우지 않고, 생성된 `.csproj`는 폴더 안의 `.cs`를 모두 포함하기 때문입니다.

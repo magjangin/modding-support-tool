@@ -105,10 +105,7 @@ public class DumpService
             }
 
             string moduleOutputDir = Path.Combine(request.OutputDirectory, Path.GetFileNameWithoutExtension(targetName));
-            if (Directory.Exists(moduleOutputDir))
-            {
-                try { Directory.Delete(moduleOutputDir, recursive: true); } catch { }
-            }
+            ClearModuleOutput(moduleOutputDir, log);
 
             log($"[내장 SignatureDumper 실행] {targetName} -> {moduleOutputDir}");
 
@@ -179,6 +176,8 @@ public class DumpService
 
             string moduleName = Path.GetFileNameWithoutExtension(dllPath);
             string moduleOutDir = Path.Combine(request.OutputDirectory, moduleName);
+            // ilspycmd는 기존 파일을 지우지 않고, 생성된 .csproj는 폴더 안의 .cs를 전부 포함하므로 먼저 비운다.
+            ClearModuleOutput(moduleOutDir, log);
             Directory.CreateDirectory(moduleOutDir);
 
             string flags = "";
@@ -193,6 +192,21 @@ public class DumpService
         }
 
         return new DumpResult(succeeded, failed);
+    }
+
+    // 이전 덤프 결과(게임 업데이트로 사라진 타입 등)가 섞이지 않도록 모듈 출력 폴더를 비운다.
+    private static void ClearModuleOutput(string moduleOutputDir, Action<string> log)
+    {
+        if (!Directory.Exists(moduleOutputDir)) return;
+
+        try
+        {
+            Directory.Delete(moduleOutputDir, recursive: true);
+        }
+        catch (Exception ex)
+        {
+            log($"[경고] 이전 출력 폴더를 지우지 못해 예전 파일이 남을 수 있습니다: {moduleOutputDir} ({ex.Message})");
+        }
     }
 
     // 프로세스가 정상 실행되어 종료 코드 0으로 끝나면 true

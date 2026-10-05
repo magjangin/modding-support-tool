@@ -99,6 +99,7 @@
   - `DumpRequest` 모델을 받아 실제 덤프 작업을 총괄.
   - `SignatureDumper`: `BuiltinSignatureDumper`를 백그라운드 태스크로 구동.
   - `IlSpyCmd`: 시스템에 설치된 `ilspycmd` 외부 프로세스를 실행하고 표준 출력/에러 스트림을 비동기 가로채기. 취소 시 프로세스 트리 전체 강제 종료.
+  - 두 엔진 모두 덤프 전에 `<Output>/<ModuleName>` 폴더를 비워 예전 결과가 섞이지 않게 함.
 - [`PresetService.cs`](file:///h:/source/repos/modding%20support%20tool/ModdingSupportTool/Services/PresetService.cs):
   - 주로 분석하는 게임들의 경로 프리셋 관리 (*Muse Dash*, *A Short Hike*, *Sixtar Gate*, *MiSide*).
   - 시스템에 존재하는 기본 경로를 우선 탐색하는 `ResolveInitialPath()` 제공.
