@@ -16,7 +16,7 @@ sealed class Program
     private const int AttachParentProcess = -1;
 
     private static readonly string[] CliFlags =
-        { "--cli", "--auto", "-i", "--input", "-o", "--output", "-t", "--targets" };
+        { "--cli", "--auto", "-i", "--input", "-o", "--output", "-t", "--targets", "--outline", "-outline", "--no-outline", "--help", "-h" };
 
     [STAThread]
     public static int Main(string[] args)
@@ -28,6 +28,11 @@ sealed class Program
             {
                 AllocConsole();
             }
+
+            var stdOut = new System.IO.StreamWriter(Console.OpenStandardOutput(), System.Text.Encoding.UTF8) { AutoFlush = true };
+            Console.SetOut(stdOut);
+            var stdErr = new System.IO.StreamWriter(Console.OpenStandardError(), System.Text.Encoding.UTF8) { AutoFlush = true };
+            Console.SetError(stdErr);
 
             return CliRunner.RunAsync(args).GetAwaiter().GetResult();
         }

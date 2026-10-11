@@ -43,6 +43,12 @@ public partial class MainViewModel : ViewModelBase
     private bool _ilSpyNestedDirectories = true;
 
     [ObservableProperty]
+    private bool _generateAiOutline = true;
+
+    [ObservableProperty]
+    private bool _hasOutlineFolder;
+
+    [ObservableProperty]
     private UnityBackend _detectedBackend = UnityBackend.Unknown;
 
     [ObservableProperty]
@@ -106,11 +112,23 @@ public partial class MainViewModel : ViewModelBase
 
         InputPath = PresetService.ResolveInitialPath();
         DetectBackend(InputPath);
+        RefreshHasOutlineFolder();
     }
 
     partial void OnInputPathChanged(string value)
     {
         DetectBackend(value);
+    }
+
+    partial void OnOutputPathChanged(string value)
+    {
+        RefreshHasOutlineFolder();
+    }
+
+    public void RefreshHasOutlineFolder()
+    {
+        string outlineDir = DumpService.GetOutlineDirectory(OutputPath);
+        HasOutlineFolder = !string.IsNullOrWhiteSpace(outlineDir) && Directory.Exists(outlineDir);
     }
 
     public void DetectBackend(string path)
@@ -258,11 +276,13 @@ public partial class MainViewModel : ViewModelBase
                 OutputDirectory = OutputPath,
                 TargetAssemblyNames = TargetAssemblies,
                 IlSpyCreateProject = IlSpyCreateProject,
-                IlSpyNestedDirectories = IlSpyNestedDirectories
+                IlSpyNestedDirectories = IlSpyNestedDirectories,
+                GenerateAiOutline = GenerateAiOutline
             };
 
             var result = await _dumpService.RunDumpAsync(request, AppendLog, _cts.Token);
             StatusMessage = result.IsSuccess ? "덤프 완료" : "덤프 실패 (로그 확인)";
+            RefreshHasOutlineFolder();
         }
         catch (OperationCanceledException)
         {
@@ -300,6 +320,13 @@ public partial class MainViewModel : ViewModelBase
     private void OpenOutputFolder()
     {
         OpenFolderInExplorer(OutputPath);
+    }
+
+    [RelayCommand]
+    private void OpenOutlineFolder()
+    {
+        string outlineDir = DumpService.GetOutlineDirectory(OutputPath);
+        OpenFolderInExplorer(outlineDir);
     }
 
     [RelayCommand]

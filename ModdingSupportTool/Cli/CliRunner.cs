@@ -2,6 +2,7 @@ using System;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
+using ModdingSupportTool.Core;
 using ModdingSupportTool.Core.Detection;
 using ModdingSupportTool.Models;
 using ModdingSupportTool.Services;
@@ -17,10 +18,42 @@ public static class CliRunner
         Console.WriteLine(" Modding Support Tool - 자동 덤프 CLI 모드");
         Console.WriteLine("=================================================");
 
+        // 독립 아웃라인 변환 모드: ModdingSupportTool.exe --outline <소스폴더> [출력폴더]
+        if (args.Length > 0 && (args[0] == "--outline" || args[0] == "-outline"))
+        {
+            string sourceDir = args.Length > 1 ? Path.GetFullPath(args[1]) : Path.GetFullPath("Decompiled");
+            string outDir = args.Length > 2 ? Path.GetFullPath(args[2]) : DumpService.GetOutlineDirectory(sourceDir);
+
+            if (!Directory.Exists(sourceDir))
+            {
+                Console.Error.WriteLine($"[오류] 대상 폴더가 존재하지 않습니다: {sourceDir}");
+                return 1;
+            }
+
+            Console.WriteLine($"[독립 AI 아웃라인 생성 모드]");
+            Console.WriteLine($"  -> 원본 폴더: {sourceDir}");
+            Console.WriteLine($"  -> 아웃라인 폴더: {outDir}");
+
+            try
+            {
+                var stats = await RoslynOutliner.ProcessDirectoryAsync(sourceDir, outDir, line => Console.WriteLine(line), CancellationToken.None);
+                Console.WriteLine($"\n[성공] 총 {stats.ProcessedFiles}개 파일 변환 완료!");
+                Console.WriteLine($"  -> 라인 수: {stats.OriginalLines:N0}줄 -> {stats.OutlineLines:N0}줄 ({stats.LineReductionPercent}% 토큰 절감)");
+                Console.WriteLine($"  -> 저장 위치: {outDir}");
+                return 0;
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine($"[오류] 아웃라인 생성 실패: {ex.Message}");
+                return 1;
+            }
+        }
+
         var parsed = ParseArguments(args);
         string inputPath = parsed.InputPath;
         string outputPath = parsed.OutputPath;
         string targets = parsed.Targets;
+        bool generateOutline = parsed.GenerateOutline;
 
         if (string.IsNullOrWhiteSpace(inputPath))
         {
@@ -43,6 +76,7 @@ public static class CliRunner
         Console.WriteLine($"[입력 경로] {inputPath}");
         Console.WriteLine($"[출력 폴더] {outputPath}");
         Console.WriteLine($"[대상 어셈블리] {targets}");
+        Console.WriteLine($"[AI 아웃라인 동시 생성] {(generateOutline ? "활성화" : "비활성화")}");
 
         // Unity 백엔드 자동 판별
         Console.WriteLine("\n[1] Unity 엔진 백엔드 자동 판별 중...");
@@ -90,7 +124,8 @@ public static class CliRunner
             OutputDirectory = outputPath,
             TargetAssemblyNames = targets,
             IlSpyCreateProject = true,
-            IlSpyNestedDirectories = true
+            IlSpyNestedDirectories = true,
+            GenerateAiOutline = generateOutline
         };
 
         using var cts = new CancellationTokenSource();
@@ -126,11 +161,12 @@ public static class CliRunner
         }
     }
 
-    private static (string InputPath, string OutputPath, string Targets) ParseArguments(string[] args)
+    private static (string InputPath, string OutputPath, string Targets, bool GenerateOutline) ParseArguments(string[] args)
     {
         string inputPath = string.Empty;
         string outputPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Decompiled");
         string targets = "Assembly-CSharp.dll, Assembly-CSharp-firstpass.dll";
+        bool generateOutline = true;
 
         if (args.Length > 0 && !args[0].StartsWith("-"))
         {
@@ -154,16 +190,23 @@ public static class CliRunner
                     outputPath = args[++i];
                 else if ((args[i] == "-t" || args[i] == "--targets") && i + 1 < args.Length)
                     targets = args[++i];
+                else if (args[i] == "--no-outline")
+                    generateOutline = false;
+                else if (args[i] == "--outline")
+                    generateOutline = true;
             }
         }
 
-        return (inputPath, outputPath, targets);
+        return (inputPath, outputPath, targets, generateOutline);
     }
 
     private static void PrintUsage()
     {
         Console.WriteLine("사용법:");
-        Console.WriteLine("  ModdingSupportTool.exe [입력경로] [출력폴더] [타겟DLL목록]");
-        Console.WriteLine("  ModdingSupportTool.exe --input <경로> --output <폴더> --targets <dll1,dll2>");
+        Console.WriteLine("  1. 일반 덤프 모드:");
+        Console.WriteLine("     ModdingSupportTool.exe [입력경로] [출력폴더] [타겟DLL목록]");
+        Console.WriteLine("     ModdingSupportTool.exe --input <경로> --output <폴더> --targets <dll1,dll2> [--no-outline]");
+        Console.WriteLine("  2. 기존 디컴파일 폴더 독립 아웃라인 생성 모드:");
+        Console.WriteLine("     ModdingSupportTool.exe --outline <디컴파일폴더경로> [출력아웃라인폴더]");
     }
 }

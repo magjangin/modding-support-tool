@@ -52,8 +52,8 @@
   - GUI를 열 필요 없이 탐색기에서 게임 폴더나 DLL을 배치 파일 위로 끌어다 놓기만 하면 즉시 덤프 진행.
 - 📦 **독립 실행형 SignatureDumper 프로젝트 내보내기**:
   - 앱 내장 시그니처 덤퍼를 `net472;net8.0` 멀티타깃의 독립 콘솔 프로젝트 소스로 어디서든 내보내기(Export) 가능.
-- 🎮 **모딩 타겟 원클릭 프리셋 내장**:
-  - *Muse Dash (Il2Cpp)*, *Sixtar Gate: STARTRAIL (Il2Cpp)*, *A Short Hike (Mono)*, *MiSide (Il2Cpp)* 등 주요 모딩 대상 게임 경로 기본 탑재.
+- 🎮 **리듬게임 모딩 타겟 원클릭 프리셋 내장**:
+  - *Muse Dash (Hwa - Il2Cpp)*, *Sixtar Gate (Custom Mode - Mono)*, *GUNVOLT RECORDS Cychronicle (Mono)*, *Sixtar Gate (Steam - Il2Cpp)*, *Sixtar Gate: STARGAZER (Il2Cpp)*, *KALPA: CosmicSymphony (Mono)* 등 리듬게임 전용 프리셋 완벽 탑재.
 
 ---
 

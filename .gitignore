@@ -6,6 +6,7 @@
 # Modding Support Tool Output
 Publish/
 Decompiled/
+Decompiled_*/
 Test*Dump/
 
 # dotenv files

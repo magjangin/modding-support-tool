@@ -17,6 +17,7 @@ public class DumpRequest
     public string TargetAssemblyNames { get; set; } = "Assembly-CSharp.dll, Assembly-CSharp-firstpass.dll";
     public bool IlSpyCreateProject { get; set; } = true;
     public bool IlSpyNestedDirectories { get; set; } = true;
+    public bool GenerateAiOutline { get; set; } = true;
 }
 
 public sealed record DumpResult(int SucceededCount, int FailedCount)
@@ -187,11 +188,60 @@ public class DumpService
             string arguments = $"{flags} -o \"{moduleOutDir}\" \"{dllPath}\"";
             log($"[ilspycmd 실행] {dllPath} -> {moduleOutDir}");
 
-            if (await ExecuteProcessAsync("ilspycmd", arguments, log, ct)) succeeded++;
-            else failed++;
+            if (await ExecuteProcessAsync("ilspycmd", arguments, log, ct))
+            {
+                succeeded++;
+
+                if (request.GenerateAiOutline)
+                {
+                    await GenerateModuleOutlineAsync(moduleOutDir, request.OutputDirectory, moduleName, log, ct);
+                }
+            }
+            else
+            {
+                failed++;
+            }
         }
 
         return new DumpResult(succeeded, failed);
+    }
+
+    public static string GetOutlineDirectory(string outputDirectory)
+    {
+        if (string.IsNullOrWhiteSpace(outputDirectory)) return string.Empty;
+        return outputDirectory.TrimEnd('\\', '/') + "_Outline";
+    }
+
+    private async Task GenerateModuleOutlineAsync(
+        string moduleSourceDir,
+        string baseOutputDir,
+        string moduleName,
+        Action<string> log,
+        CancellationToken ct)
+    {
+        string outlineRootDir = GetOutlineDirectory(baseOutputDir);
+        string moduleOutlineDir = Path.Combine(outlineRootDir, moduleName);
+
+        log($"----------------------------------------");
+        log($"[AI 아웃라인 생성 시작] {moduleName} -> {moduleOutlineDir}");
+
+        try
+        {
+            ClearModuleOutput(moduleOutlineDir, log);
+            var stats = await RoslynOutliner.ProcessDirectoryAsync(moduleSourceDir, moduleOutlineDir, log, ct);
+
+            log($"  [AI 아웃라인 생성 완료] {stats.ProcessedFiles}개 파일 변환 완료 (실패 {stats.FailedFiles}개)");
+            log($"  -> 라인 수 절감: {stats.OriginalLines:N0}줄 -> {stats.OutlineLines:N0}줄 ({stats.LineReductionPercent}% 토큰 절감 효과)");
+            log($"  -> 아웃라인 폴더: {moduleOutlineDir}");
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            log($"  [경고] AI 아웃라인 생성 중 오류: {ex.Message}");
+        }
     }
 
     // 이전 덤프 결과(게임 업데이트로 사라진 타입 등)가 섞이지 않도록 모듈 출력 폴더를 비운다.

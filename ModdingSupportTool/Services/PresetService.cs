@@ -11,19 +11,22 @@ public static class PresetService
     private static readonly string[] DefaultPathCandidates =
     {
         @"H:\muse dash hwa\MelonLoader\Il2CppAssemblies",
-        @"H:\steam\steamapps\common\Muse Dash\MelonLoader\Il2CppAssemblies",
-        @"H:\steam\steamapps\common\MiSide\MelonLoader\Il2CppAssemblies",
+        @"H:\Sixtar Gate STARTRAIL custom mode",
+        @"H:\steam\steamapps\common\GUNVOLT RECORDS Cychronicle",
         @"H:\muse dash hwa",
-        @"H:\steam\steamapps\common\Muse Dash"
+        @"H:\steam\steamapps\common\Sixtar Gate STARTRAIL",
+        @"H:\steam\steamapps\common\Sixtar Gate STARGAZER",
+        @"H:\steam\steamapps\common\KALPA CosmicSymphony"
     };
 
     public static readonly IReadOnlyList<PathPreset> Presets = new List<PathPreset>
     {
-        new("MuseDashHwa", "Muse Dash (Hwa - Il2Cpp)", @"H:\muse dash hwa\MelonLoader\Il2CppAssemblies"),
-        new("ShortHikeMono", "A Short Hike (Mono)", @"H:\steam\steamapps\common\A Short Hike"),
-        new("SixtarGate", "Sixtar Gate (Il2Cpp)", @"H:\steam\steamapps\common\Sixtar Gate STARTRAIL"),
-        new("SteamMuseDash", "Steam Muse Dash", @"H:\steam\steamapps\common\Muse Dash"),
-        new("SteamMiSide", "Steam MiSide", @"H:\steam\steamapps\common\MiSide\MelonLoader\Il2CppAssemblies")
+        new("MuseDashHwa", "Muse Dash (Hwa)", @"H:\muse dash hwa\MelonLoader\Il2CppAssemblies"),
+        new("SixtarCustomMono", "Sixtar Gate (Custom - Mono)", @"H:\Sixtar Gate STARTRAIL custom mode"),
+        new("GunvoltRecords", "Gunvolt Records (Mono)", @"H:\steam\steamapps\common\GUNVOLT RECORDS Cychronicle"),
+        new("SixtarSteam", "Sixtar Gate (Steam)", @"H:\steam\steamapps\common\Sixtar Gate STARTRAIL"),
+        new("SixtarStargazer", "Sixtar Stargazer", @"H:\steam\steamapps\common\Sixtar Gate STARGAZER"),
+        new("KalpaMono", "KALPA (Mono)", @"H:\steam\steamapps\common\KALPA CosmicSymphony")
     };
 
     public static string ResolveInitialPath()
