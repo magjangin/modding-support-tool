@@ -1,6 +1,8 @@
 # 아키텍처 및 동작 파이프라인 (Architecture & Pipeline)
 
-이 문서는 `Modding Support Tool`의 전반적인 시스템 아키텍처와 게임 백엔드 판별, 디컴파일/시그니처 덤프 파이프라인의 내부 동작 원리를 설명합니다.
+이 문서는 `Modding Support Tool`의 구조와 파이프라인을 다이어그램으로 설명합니다. 각 단계의 세부 규칙은 [core-logic.md](core-logic.md)에 있습니다.
+
+> 범위: Unity(Mono/Il2Cpp) 게임에 **MelonLoader로 주입할 모드 DLL**을 만들 때 참고할 C# 레퍼런스를 만듭니다. Unreal Engine은 UE4SS, 네이티브 리버싱은 Ghidra/IDA 등 다른 도구를 쓰세요.
 
 ---
 
@@ -8,116 +10,158 @@
 
 ```mermaid
 flowchart TD
-    subgraph UI_CLI ["입력 인터페이스"]
-        GUI["Avalonia Desktop GUI\n(MainWindow.axaml)"]
-        CLI["CLI Runner / run_dump.bat\n(CliRunner.cs)"]
+    subgraph Entry ["진입점 (Program.cs)"]
+        GUI["Avalonia GUI<br/>(MainWindow / MainViewModel)"]
+        CLI["CLI 하위 명령<br/>(CliRunner)"]
+        MCP["MCP 서버 stdio<br/>(McpServer)"]
     end
 
-    subgraph CoreEngine ["분석 및 감지 코어"]
-        Detector["UnityBackendDetector\n(파일 구조 & 메타데이터 분석)"]
-        Presets["PresetService\n(주요 게임 경로 프리셋)"]
+    subgraph Agents ["AI 에이전트"]
+        Claude["Claude Code"]
+        Agy["Antigravity (agy)"]
+        Gemini["Gemini CLI"]
     end
 
-    subgraph ExecutionLayer ["덤프 실행 서비스 (DumpService)"]
-        Dispatcher{"엔진 결정\n(Il2Cpp vs Mono)"}
-        Il2CppBranch["BuiltinSignatureDumper\n(In-Process 정적 분석)"]
-        MonoBranch["ilspycmd Process\n(외부 CLI 도구 호출)"]
+    subgraph Toolkit ["공용 툴킷 (ModdingToolkit)"]
+        Plan["DumpService.Plan<br/>판별 · 엔진 · 입력 보정"]
+        Dump["DumpService<br/>덤프 실행"]
+        Index["ReferenceIndex<br/>색인 · 검색 · 선언 읽기"]
+        Patch["HarmonyPatchGenerator"]
+        Template["MelonModTemplate"]
     end
 
-    subgraph OutputLayer ["출력 디렉터리 (Decompiled/)"]
-        SkeletonFiles["C# 스켈레톤 소스 (*.cs)\n(Decompiled/<Asm>/<Namespace>/<Type>.cs)"]
-        FullDecompiled["전체 디컴파일 C# 소스 & .csproj\n(Decompiled/<Asm>/...)"]
+    subgraph Engines ["덤프 엔진"]
+        Sig["BuiltinSignatureDumper<br/>(Il2Cpp 스켈레톤)"]
+        Ilspy["ilspycmd<br/>(Mono 전체 소스)"]
+        Outliner["RoslynOutliner<br/>(_Outline)"]
     end
 
-    GUI --> Detector
-    CLI --> Detector
-    Presets -.-> Detector
+    subgraph Output ["출력 (Decompiled/...)"]
+        Files["#60;모듈#62;/#60;Namespace#62;/#60;Type#62;.cs"]
+        OutlineFiles["*_Outline/#60;모듈#62;/..."]
+        Manifest["reference.json"]
+    end
 
-    Detector --> Dispatcher
-    Dispatcher -- "Il2Cpp 감지됨" --> Il2CppBranch
-    Dispatcher -- "Mono 감지됨" --> MonoBranch
+    Installer["AgentInstaller<br/>스킬 MD 설치 + MCP 등록"]
 
-    Il2CppBranch --> SkeletonFiles
-    MonoBranch --> FullDecompiled
+    Claude & Agy & Gemini -- "stdio JSON-RPC" --> MCP
+    GUI --> Plan
+    CLI --> Toolkit
+    MCP --> Toolkit
+    Plan --> Dump
+    Dump --> Sig --> Files
+    Dump --> Ilspy --> Files
+    Ilspy --> Outliner --> OutlineFiles
+    Dump --> Manifest
+    Files & OutlineFiles & Manifest --> Index
+    Index --> Patch
+    GUI -- "AI 에이전트에 설치" --> Installer
+    CLI -- "agent install" --> Installer
+    Installer -.-> Claude & Agy & Gemini
 ```
 
 ---
 
-## 2. Unity 백엔드 판별 로직 상세 ([`UnityBackendDetector.cs`](file:///h:/source/repos/modding%20support%20tool/ModdingSupportTool/Core/Detection/UnityBackendDetector.cs))
-
-Unity 게임은 빌드 시점에 어떤 백엔드를 사용했는지에 따라 파일 구조가 확연히 다릅니다. 본 도구는 이를 휴리스틱 및 시그니처 파일 체크를 통해 자동 판별합니다. 마커를 찾지 못하면 `Unknown`으로 표시합니다.
+## 2. Unity 백엔드 판별 ([`UnityBackendDetector.cs`](../ModdingSupportTool/Core/Detection/UnityBackendDetector.cs))
 
 ```mermaid
 flowchart TD
-    Start["입력 경로 수신 (파일 or 폴더)"] --> CheckPath{"단일 파일인가,\n폴더인가?"}
-    
-    CheckPath -- "단일 파일 (*.dll)" --> CheckParent["경로 내 'Il2CppAssemblies' 포함 확인\n또는 상위 폴더(Game_Data)로 스캔 위임"]
-    CheckPath -- "디렉터리" --> ScanDir["디렉터리 구조 분석"]
-    
+    Start["입력 경로 (파일 or 폴더)"] --> CheckPath{"단일 파일인가?"}
+
+    CheckPath -- "DLL" --> CheckParent["경로에 Il2CppAssemblies 포함?<br/>아니면 상위 폴더(Game_Data, 게임 루트)로 위임"]
+    CheckPath -- "폴더" --> ScanDir["디렉터리 분석"]
     CheckParent --> ScanDir
 
-    ScanDir --> Check1{"MelonLoader/Il2CppAssemblies\n폴더인가?"}
-    Check1 -- Yes --> Il2CppFound["Il2Cpp 백엔드 확정\n(타겟 어셈블리 직접 분석)"]
-    Check1 -- No --> Check2{"*_Data/il2cpp_data/Metadata/\nglobal-metadata.dat 존재?"}
-    
-    Check2 -- Yes --> Il2CppFound2["Il2Cpp 백엔드 확정\n(MelonLoader 폴더 보정 추천)"]
-    Check2 -- No --> Check3{"GameAssembly.dll +\nUnityPlayer.dll 존재?"}
-    
+    ScanDir --> Check1{"MelonLoader/Il2CppAssemblies?"}
+    Check1 -- Yes --> Il2CppFound["Il2Cpp 확정<br/>(그 폴더를 덤프)"]
+    Check1 -- No --> Check2{"*_Data/il2cpp_data/Metadata/<br/>global-metadata.dat?"}
+    Check2 -- Yes --> Il2CppFound2["Il2Cpp 확정<br/>(MelonLoader/Il2CppAssemblies로 보정)"]
+    Check2 -- No --> Check3{"GameAssembly.dll +<br/>UnityPlayer.dll?"}
     Check3 -- Yes --> Il2CppFound2
-    Check3 -- No --> Check4{"*_Data/Managed/ 내\nAssembly-CSharp.dll 존재?"}
-    
-    Check4 -- Yes --> MonoFound["Mono 백엔드 확정\n(ilspycmd 엔진 선택)"]
-    Check4 -- No --> Check5{"MonoBleedingEdge\n런타임 폴더 존재?"}
-    
+    Check3 -- No --> Check4{"*_Data/Managed/<br/>Assembly-CSharp.dll?"}
+    Check4 -- Yes --> MonoFound["Mono 확정<br/>(ilspycmd, Managed로 보정)"]
+    Check4 -- No --> Check5{"MonoBleedingEdge?"}
     Check5 -- Yes --> MonoFound
-    Check5 -- No --> Unknown["백엔드 미확정\n(기본 SignatureDumper로 시도)"]
+    Check5 -- No --> Unknown["Unknown<br/>(툴킷: Unreal이면 UE4SS 안내)"]
+```
+
+- 게임 루트 스캔은 최대 깊이 8, **최대 4,000개 폴더**에서 멈추고 `CancellationToken`으로 취소할 수 있습니다.
+- GUI는 경로 입력을 300ms 디바운스한 뒤 백그라운드에서 판별합니다.
+
+---
+
+## 3. Il2Cpp: 내장 SignatureDumper 파이프라인 ([`BuiltinSignatureDumper.cs`](../ModdingSupportTool/Core/BuiltinSignatureDumper.cs))
+
+```mermaid
+flowchart LR
+    A["Il2CppAssemblies/<br/>Assembly-CSharp.dll"] --> B["수집 가능한 ALC에<br/>LoadFromStream<br/>(파일 잠금 없음)"]
+    B --> C["의존성 해석<br/>net6 → net472 → net35 → SupportModules<br/>(이름별 캐시)"]
+    C --> D["GetTypes()<br/>MethodInfoStoreGeneric_* 제외"]
+    D --> E["타입별 병렬 분석<br/>NativeField/MethodInfoPtr_*,<br/>IntPtr 생성자 제외"]
+    E --> F["using 생성 · 이름 충돌 시<br/>네임스페이스 표기"]
+    F --> G["경로 순차 결정 →<br/>병렬 쓰기"]
+    G --> H["#60;모듈#62;/#60;Namespace#62;/#60;Type#62;.cs<br/>+ reference.json"]
+    G -. "FileWritten 콜백" .-> I["메모리 색인 (MCP)"]
+```
+
+- Il2CppInterop 어셈블리는 모든 멤버를 `public`으로 노출하므로 원래 접근 제어자는 알 수 없습니다.
+- 이름 충돌 판단은 덤프를 실행한 .NET 런타임의 기본 라이브러리 기준입니다. 그래서 앱(.NET 10)과 독립 SignatureDumper(.NET 8)의 표기가 드물게 다를 수 있습니다. (같은 런타임이면 출력이 같음)
+- 덤프 전에 `<출력>/<모듈>` 폴더를 비워 게임 업데이트로 사라진 타입의 예전 파일이 남지 않게 합니다.
+
+---
+
+## 4. Mono: ilspycmd + AI 아웃라인
+
+```mermaid
+flowchart LR
+    A["*_Data/Managed/<br/>Assembly-CSharp.dll"] --> B["ilspycmd -p --nested-directories<br/>(출력 폴더 먼저 비움)"]
+    B --> C["#60;모듈#62;/ 전체 소스 + .csproj"]
+    C --> D["RoslynOutliner<br/>(파일 병렬, 본문 → ;)"]
+    D --> E["*_Outline/#60;모듈#62;/ 아웃라인"]
+    C & E --> F["reference.json<br/>(hasMethodBodies: true)"]
+```
+
+- ilspycmd 표준 출력/에러는 비동기로 로그에 흘려보내고, 취소하면 프로세스 트리 전체를 종료합니다.
+- 인자는 `ProcessStartInfo.ArgumentList`로 넘겨 공백·따옴표가 든 경로도 안전합니다.
+
+---
+
+## 5. 에이전트 ↔ MCP 서버 흐름
+
+```mermaid
+sequenceDiagram
+    participant A as AI 에이전트
+    participant S as ModdingSupportTool.exe mcp
+    participant G as 게임 폴더
+    A->>S: initialize (protocolVersion)
+    S-->>A: serverInfo, tools capability, instructions
+    A->>S: tools/call detect_unity_backend(path)
+    S->>G: 판별 (Il2CppAssemblies, app.info)
+    S-->>A: Il2Cpp · MelonLoader 설치됨 · 덤프 입력/엔진
+    A->>S: tools/call dump_game_reference (progressToken)
+    S-->>A: notifications/progress ...
+    S-->>A: 출력 폴더 · 색인 요약 (기본 레퍼런스로 기억)
+    A->>S: search_reference / read_reference_type
+    S-->>A: 한 줄 시그니처 + 파일:줄 / 선언 코드
+    A->>S: generate_harmony_patch · generate_melon_mod_project
+    S-->>A: 패치 코드 · .csproj + Core.cs
+    Note over A: dotnet build → (사용자 확인 후) Mods 복사 → Latest.log 확인
 ```
 
 ---
 
-## 3. 내장 SignatureDumper 동작 파이프라인 ([`BuiltinSignatureDumper.cs`](file:///h:/source/repos/modding%20support%20tool/ModdingSupportTool/Core/BuiltinSignatureDumper.cs))
+## 6. 에이전트 설치 흐름 ([`AgentInstaller.cs`](../ModdingSupportTool/Agent/AgentInstaller.cs))
 
-Il2Cpp 게임의 경우 MelonLoader가 생성한 더미 어셈블리(`.dll`)를 런타임 게임 실행 없이 오프라인에서 읽어들입니다.
-
-### 1) 격리 로딩 (`AssemblyLoadContext`)
-- 분석 대상 어셈블리가 프로세스에 영구 잠금되는 문제를 방지하기 위해 매 덤프 시마다 `isCollectible: true` 속성의 임시 ALC를 생성합니다.
-- 어셈블리가 참조하는 MelonLoader 기본 의존성(`net6`, `net472`, `net35`, `Dependencies/SupportModules`)을 `alc.Resolving` 이벤트 핸들러에서 자동 해결합니다.
-
-### 2) 리플렉션 정적 분석 (`System.Reflection`)
-- `asm.GetTypes()`로 로드된 타입 메타데이터를 순회하며 다음 정보들을 추출하여 `TypeSignatureInfo` 모델을 빌드합니다:
-  - **타입 원형**: `class`, `struct`, `interface`, `enum`, `delegate` 구분.
-  - **상속 및 구현**: 베이스 클래스 및 모든 인터페이스 목록.
-  - **필드 & 상수**: `const`, `static`, `readonly`, 접근 제어자, 기본 리터럴 값.
-  - **프로퍼티**: `get;`, `set;`의 개별 접근 제어자(예: `public int Value { get; private set; }`).
-  - **생성자 & 메서드**: 리턴 타입, 제네릭 인자, 파라미터(`ref`, `out`, `params`, 디폴트 인자), `virtual`/`override`/`sealed override` 구분. 정적 생성자는 `static TypeName();`으로 표시합니다.
-- Il2CppInterop 어셈블리는 모든 멤버를 `public`으로 노출하므로, Il2Cpp 게임에서는 원래 접근 제어자를 알 수 없습니다.
-
-### 3) 타입 이름 표기 (using 생성)
-- 파일마다 실제로 참조하는 타입의 네임스페이스로 `using`을 만듭니다.
-- 현재 네임스페이스와 using 네임스페이스 중 두 곳 이상에 같은 이름의 타입이 있으면 네임스페이스를 붙여 표기합니다.
-  - 예: `Il2CppSystem.Object`와 `UnityEngine.Object`, `System.IntPtr`와 `Il2CppSystem.IntPtr`
-  - 그래서 `List<GameObject>`처럼 이름만 나오면 파일 위쪽 using에 있는 단 하나의 `List`(예: `Il2CppSystem.Collections.Generic`)를 뜻합니다.
-- 이름 충돌은 덤프를 실행한 .NET 런타임의 기본 라이브러리 기준으로 판단합니다. 그래서 앱 내장 덤퍼(.NET 10)와 독립 SignatureDumper(.NET 8)의 표기가 드물게 다를 수 있습니다. (예: .NET 10에 새로 생긴 `System.EventHandler<TSender, TEventArgs>`)
-
-### 4) 소스 파일 분할 생성
-- 전체 클래스가 한 파일에 뭉쳐 있으면 검색 및 Git 형상 관리가 어렵기 때문에, 각 타입별로 독립된 `.cs` 파일을 생성합니다:
-  - **저장 규칙**: `<OutputDirectory>/<Namespace>/<TypeName>.cs`
-  - **중첩 타입**: `<OutputDirectory>/<Namespace>/<Outer>.<Inner>.cs`로 따로 저장하고, 파일 안에 `// Nested in: <Outer>` 주석을 남깁니다. (바깥 타입이 다른 같은 이름의 중첩 타입끼리 덮어쓰지 않도록)
-  - 네임스페이스가 없는 글로벌 타입은 `<OutputDirectory>/Global/<TypeName>.cs`에 저장됩니다.
-  - 대소문자만 다른 경로가 겹치면 `<TypeName>_2.cs`처럼 번호를 붙입니다.
-- 덤프 전에 `<Output>/<ModuleName>` 폴더를 비워서, 게임 업데이트로 사라진 타입의 예전 파일이 섞이지 않게 합니다.
-- 분석이 끝나면 ALC를 언로드(`alc.Unload()`)하여 파일 핸들과 메모리를 즉시 반환합니다.
-
----
-
-## 4. Mono 디컴파일 파이프라인 (`ilspycmd`)
-
-- Mono 백엔드로 감지되었거나 사용자가 `ilspycmd`를 선택한 경우:
-  - 대상 어셈블리(`Assembly-CSharp.dll` 등)에 대해 `ilspycmd` CLI를 백그라운드 프로세스로 호출합니다.
-  - 실행 인수:
-    - `-p`: C# 프로젝트 파일(`.csproj`) 생성
-    - `--nested-directories`: 네임스페이스에 맞춘 폴더 분할
-    - `-o "<OutputDir>"`: 디컴파일 결과 출력 위치
-  - 표준 출력(stdout) 및 표준 에러(stderr) 스트림을 비동기 가로채어 GUI/CLI 실시간 터미널 화면에 뿌려줍니다.
-  - 작업 취소 시 프로세스 트리 전체를 정리(`Kill(entireProcessTree: true)`)하여 좀비 프로세스를 방지합니다.
-  - 실행 전에 `<Output>/<ModuleName>` 폴더를 비웁니다. `ilspycmd`는 기존 파일을 지우지 않고, 생성된 `.csproj`는 폴더 안의 `.cs`를 모두 포함하기 때문입니다.
+```mermaid
+flowchart TD
+    Cmd["agent install / GUI 버튼"] --> Src{"스킬 출처"}
+    Src -- "기본" --> Emb["exe 내장 리소스<br/>(agent/skills/**)"]
+    Src -- "--source github / URL" --> Http["HTTP 다운로드"]
+    Src -- "--source #60;폴더#62;" --> Dir["로컬 폴더"]
+    Emb & Http & Dir --> Clients["대상 에이전트<br/>(지정 또는 자동 감지)"]
+    Clients --> Skill["스킬 폴더에 SKILL.md + references 쓰기<br/>표식(.modding-support-tool.json) + local-install.md"]
+    Clients --> Mcp{"MCP 등록"}
+    Mcp -- "Claude 사용자" --> ClaudeCli["claude mcp add --scope user"]
+    Mcp -- "Gemini 사용자" --> GeminiCli["gemini mcp add --scope user"]
+    Mcp -- "Antigravity / 프로젝트" --> Merge["JSON 병합<br/>(다른 키 보존 · 백업 · 원자적 교체)"]
+```

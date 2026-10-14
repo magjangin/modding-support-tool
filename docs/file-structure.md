@@ -1,155 +1,99 @@
-# 폴더별 전체 파일 상세 구조도 (Directory & File Architecture)
+# 폴더별 파일 구조 (Directory & File Architecture)
 
-이 문서는 `Modding Support Tool` 프로젝트의 모든 디렉터리와 파일을 폴더 단위로 세밀하게 분류하여 각 파일의 역할, 의존성 관계, 내부 동작 메커니즘을 상세히 기술합니다.
-
----
-
-## 📁 1. 루트 디렉터리 (`/`)
-
-프로젝트의 최상위 폴더로, 솔루션 정의 파일과 빠른 실행/빌드 스크립트, 그리고 문서가 위치합니다.
-
-| 파일/폴더명 | 유형 | 역할 및 세부 설명 |
-| :--- | :---: | :--- |
-| [`ModdingSupportTool.slnx`](file:///h:/source/repos/modding%20support%20tool/ModdingSupportTool.slnx) | 파일 | Visual Studio 2022 v17.10+ 최신 XML 기반 가벼운 솔루션 선언 파일. |
-| [`run_dump.bat`](file:///h:/source/repos/modding%20support%20tool/run_dump.bat) | 스크립트 | **원클릭 및 드래그 앤 드롭 덤프 스크립트**.<br>• 폴더/DLL 드래그 시 즉시 해당 경로 덤프 수행.<br>• 더블 클릭 시 `PresetService` 기본 경로로 자동 실행.<br>• 실행 파일 부재 시 `publish.bat` 자동 연계 빌드. |
-| [`publish.bat`](file:///h:/source/repos/modding%20support%20tool/publish.bat) | 스크립트 | **배포 빌드 스크립트**.<br>`dotnet publish`를 실행하여 단일 파일 `Publish/ModdingSupportTool.exe` (win-x64, 런타임 미포함 framework-dependent)를 빌드합니다. 실행하려면 .NET 10 런타임이 필요합니다. |
-| [`.gitignore`](file:///h:/source/repos/modding%20support%20tool/.gitignore) | 설정 | `bin/`, `obj/`, 빌드 아티팩트 및 임시 캐시 파일을 Git 추적에서 제외합니다. |
-| [`README.md`](file:///h:/source/repos/modding%20support%20tool/README.md) | 문서 | 프로젝트 소개, 빠른 시작, 기능 요약 및 문서 인덱스. |
-| [`docs/`](file:///h:/source/repos/modding%20support%20tool/docs) | 폴더 | 세부 기술 문서 및 아키텍처 가이드가 모여 있는 디렉터리. |
-| [`ModdingSupportTool/`](file:///h:/source/repos/modding%20support%20tool/ModdingSupportTool) | 폴더 | C# 메인 애플리케이션 프로젝트 소스 코드. |
-| [`Publish/`](file:///h:/source/repos/modding%20support%20tool/Publish) | 폴더 | `publish.bat`에 의해 컴파일된 배포용 바이너리가 저장되는 폴더. |
-| [`Decompiled/`](file:///h:/source/repos/modding%20support%20tool/Decompiled) | 폴더 | 덤프된 C# 스켈레톤 소스(`.cs`) 및 디컴파일 결과물이 저장되는 기본 대상 폴더. |
+프로젝트의 폴더와 파일을 역할별로 정리했습니다. 동작 원리는 [core-logic.md](core-logic.md), 다이어그램은 [architecture.md](architecture.md)를 보세요.
 
 ---
 
-## 📁 2. 문서 디렉터리 (`docs/`)
+## 📁 1. 루트 (`/`)
 
-개발자 및 사용자를 위한 기술 설명서가 체계적으로 정리된 폴더입니다.
-
-| 파일명 | 내용 |
+| 파일/폴더 | 역할 |
 | :--- | :--- |
-| [`docs/file-structure.md`](file:///h:/source/repos/modding%20support%20tool/docs/file-structure.md) | **(현재 문서)** 프로젝트 내 모든 디렉터리와 파일들의 역할 및 상호작용 상세 안내. |
-| [`docs/architecture.md`](file:///h:/source/repos/modding%20support%20tool/docs/architecture.md) | Mermaid 다이어그램 기반의 시스템 구조도, 백엔드 판별 트리, ALC 로딩 및 리플렉션 덤프 메커니즘. |
-| [`docs/usage.md`](file:///h:/source/repos/modding%20support%20tool/docs/usage.md) | Avalonia GUI 조작법, CLI 명령줄 옵션, 드래그앤드롭 사용법 및 Standalone SignatureDumper 방출 안내. |
+| [`ModdingSupportTool.slnx`](../ModdingSupportTool.slnx) | Visual Studio 2022 v17.10+ XML 솔루션 파일. `AppPaths`가 저장소 루트를 찾는 표식으로도 쓴다. |
+| [`run_dump.bat`](../run_dump.bat) | 드래그 앤 드롭/더블 클릭 덤프. exe가 없으면 `publish.bat`을 먼저 실행. |
+| [`publish.bat`](../publish.bat) | `Publish/ModdingSupportTool.exe` 단일 파일(win-x64, framework-dependent) 게시. |
+| [`.claude-plugin/marketplace.json`](../.claude-plugin/marketplace.json) | Claude Code 플러그인 마켓플레이스. `agent/` 플러그인을 가리킨다. |
+| [`agent/`](../agent) | AI 에이전트 플러그인 (아래 2장). |
+| [`docs/`](.) | 문서. |
+| [`ModdingSupportTool/`](../ModdingSupportTool) | C# 애플리케이션. |
+| `Publish/`, `Decompiled/` | 게시 결과, 기본 덤프 출력 (Git 제외). |
 
 ---
 
-## 📁 3. 메인 소스 코드 디렉터리 (`ModdingSupportTool/`)
+## 📁 2. 에이전트 플러그인 (`agent/`)
 
-애플리케이션의 핵심 로직이 구현된 C# .NET 10 프로젝트입니다.
+스킬 MD의 **단일 원본**입니다. Claude Code·Antigravity 플러그인으로 바로 설치할 수 있고, 빌드 시 `agent/skills/**`가 exe에 임베드되어 `agent install`이 이 파일들을 각 에이전트 스킬 폴더에 씁니다.
 
-### 📄 프로젝트 루트 파일들
-- [`ModdingSupportTool.csproj`](file:///h:/source/repos/modding%20support%20tool/ModdingSupportTool/ModdingSupportTool.csproj):
-  - TargetFramework: `net10.0`, OutputType: `WinExe`
-  - 의존성: `Avalonia (12.1.2)`, `Avalonia.Themes.Fluent`, `Avalonia.Fonts.Inter`, `CommunityToolkit.Mvvm (8.4.2)`
-- [`Program.cs`](file:///h:/source/repos/modding%20support%20tool/ModdingSupportTool/Program.cs):
-  - **GUI / CLI 하이브리드 진입점**.
-  - 인자가 전달되면 Win32 `AttachConsole(-1)` 또는 `AllocConsole()`로 현재 콘솔에 터미널을 붙여 [`CliRunner`](file:///h:/source/repos/modding%20support%20tool/ModdingSupportTool/Cli/CliRunner.cs)를 실행.
-  - 인자가 없으면 `BuildAvaloniaApp().StartWithClassicDesktopLifetime(args)`를 호출하여 Avalonia GUI 창 실행.
-- [`App.axaml`](file:///h:/source/repos/modding%20support%20tool/ModdingSupportTool/App.axaml) / [`App.axaml.cs`](file:///h:/source/repos/modding%20support%20tool/ModdingSupportTool/App.axaml.cs):
-  - Avalonia 앱 수명 주기 및 전역 리소스(FluentTheme 다크 모드) 초기화.
-  - `MainWindow`를 생성하고 `MainViewModel`을 DataContext로 바인딩.
-- [`ViewLocator.cs`](file:///h:/source/repos/modding%20support%20tool/ModdingSupportTool/ViewLocator.cs):
-  - MVVM 패턴에 따라 ViewModel 타입명을 View 타입명으로 자동 매핑(DataTemplate).
-- [`app.manifest`](file:///h:/source/repos/modding%20support%20tool/ModdingSupportTool/app.manifest):
-  - Windows DPI 인식(Per-Monitor V2) 및 Windows 10/11 OS 호환성 매니페스트.
+| 파일 | 역할 |
+| :--- | :--- |
+| [`.claude-plugin/plugin.json`](../agent/.claude-plugin/plugin.json) | Claude Code 플러그인 매니페스트 |
+| [`plugin.json`](../agent/plugin.json) | Antigravity 플러그인 매니페스트 (`agy plugin install`) |
+| [`README.md`](../agent/README.md) | 플러그인 설치 안내 |
+| [`skills/melonloader-mod-reference/SKILL.md`](../agent/skills/melonloader-mod-reference/SKILL.md) | 스킬 본문: 범위 확인 → 판별 → 덤프 → 검색 → 프로젝트/패치 → 빌드 절차 |
+| `references/workflow.md` | MCP 도구·CLI 명령 상세, 출력 폴더 구조, 검증 로그 |
+| `references/scope.md` | 이 도구의 범위와 다른 도구(UE4SS, Ghidra 등) 안내 |
+| `references/harmony-patterns.md` | HarmonyX 패턴, 주입 인자, Il2Cpp 차이, 오류 해결 |
+| `references/il2cpp-interop.md` | Il2Cpp 이름 규칙, 캐스팅, 컬렉션, 델리게이트, 컴포넌트 주입 |
+| `references/project-setup.md` | MelonMod 수명 주기, 설정·로그, `.csproj` 요점, 빌드 문제 |
+| (설치 시 생성) `references/local-install.md` | exe 경로, MCP 이름, CLI 대체 명령 |
 
 ---
 
-### 📂 `ModdingSupportTool/Core/` (핵심 분석 및 덤프 엔진)
+## 📁 3. 애플리케이션 (`ModdingSupportTool/`)
 
-게임 엔진 감지 및 Il2Cpp 리플렉션 분석의 심장부입니다.
+### 루트 파일
+- [`ModdingSupportTool.csproj`](../ModdingSupportTool/ModdingSupportTool.csproj) — `net10.0`, `WinExe`, 버전 1.1.0. Avalonia 12, CommunityToolkit.Mvvm, Microsoft.CodeAnalysis.CSharp. 임베디드 리소스: 덤퍼 코어 소스(`Export/SignatureDumper.cs`), 스킬 파일(`agent/skills/**`).
+- [`Program.cs`](../ModdingSupportTool/Program.cs) — 인자 없음 → GUI, `mcp` → MCP 서버(콘솔 미연결), 그 밖 → CLI. 출력이 리디렉션되지 않았을 때만 콘솔에 붙는다.
+- `App.axaml(.cs)`, `ViewLocator.cs`, `app.manifest` — Avalonia 앱 수명 주기, 뷰 매핑, DPI 매니페스트.
 
-#### `Core/Detection/` (Unity 백엔드 판별)
-- [`UnityBackend.cs`](file:///h:/source/repos/modding%20support%20tool/ModdingSupportTool/Core/Detection/UnityBackend.cs):
-  - 백엔드 열거형 (`Unknown = 0`, `Mono = 1`, `Il2Cpp = 2`).
-- [`UnityBackendDetector.cs`](file:///h:/source/repos/modding%20support%20tool/ModdingSupportTool/Core/Detection/UnityBackendDetector.cs):
-  - **파일 시스템 기반 Unity 백엔드 자동 감지기**.
-  - 파일 검사: `global-metadata.dat`, `GameAssembly.dll`, `UnityPlayer.dll`, `Assembly-CSharp.dll`, `MonoBleedingEdge` 등.
-  - 폴더 깊이 8단계 스택 기반 재귀 스캔.
-  - `MelonLoader/Il2CppAssemblies` 폴더 자동 탐지 및 권장 어셈블리 경로 보정 반환.
+### 📂 `Agent/` (AI 에이전트 연동)
+- [`ModdingToolkit.cs`](../ModdingSupportTool/Agent/ModdingToolkit.cs) — MCP 도구와 CLI 하위 명령이 함께 쓰는 기능(판별·덤프·개요·검색·선언 읽기·패치·템플릿), 레퍼런스 폴더 결정, 범위 밖(Unreal 등) 안내.
+- [`AgentInstaller.cs`](../ModdingSupportTool/Agent/AgentInstaller.cs) — 스킬 설치(내장/URL/폴더 출처), MCP 등록(공식 CLI 또는 JSON 병합), 제거, 상태.
+- [`Mcp/McpServer.cs`](../ModdingSupportTool/Agent/Mcp/McpServer.cs) — stdio JSON-RPC 2.0 MCP 서버 (버전 협상, 동시 처리, 취소, 진행률).
+- [`Mcp/McpTools.cs`](../ModdingSupportTool/Agent/Mcp/McpTools.cs) — 도구 7개의 이름·설명·입력 스키마와 핸들러.
 
-#### `Core/` 루트 파일
-- [`BuiltinSignatureDumper.cs`](file:///h:/source/repos/modding%20support%20tool/ModdingSupportTool/Core/BuiltinSignatureDumper.cs):
-  - **내장 System.Reflection 오프라인 시그니처 덤퍼**.
-  - `AssemblyLoadContext(isCollectible: true)`를 사용하여 대상 DLL을 파일 잠금 없이 동적 로드.
-  - `alc.Resolving` 핸들러로 MelonLoader 런타임 의존성(`net6`, `net472`, `net35`, `Dependencies/SupportModules`)을 자동 해석.
-  - 클래스, 구조체, 인터페이스, 열거형, 델리게이트 식별.
-  - 필드, 프로퍼티(get/set 접근자 분리), 메서드 시그니처(`ref`, `out`, `params`, 기본값, `virtual`/`override`), 제네릭 복원.
-  - 파일마다 실제로 참조하는 네임스페이스로 `using`을 만들고, 이름이 겹치는 타입(예: `System.IntPtr`/`Il2CppSystem.IntPtr`)엔 네임스페이스를 붙임.
-  - 네임스페이스별 `Decompiled/<ModuleName>/<Namespace>/<TypeName>.cs` 스켈레톤 소스 생성. 중첩 타입은 `<Outer>.<Inner>.cs`, 글로벌 타입은 `Global/` 폴더.
-- [`SignatureDumperExporter.cs`](file:///h:/source/repos/modding%20support%20tool/ModdingSupportTool/Core/SignatureDumperExporter.cs):
-  - 내장 덤퍼 로직을 외부 폴더에 독립 실행형 프로젝트(`net472;net8.0` 멀티타깃 `.csproj` + `Program.cs` + `SignatureDumper.cs`)로 추출/방출하는 툴 생성기.
+### 📂 `Cli/`
+- [`CliRunner.cs`](../ModdingSupportTool/Cli/CliRunner.cs) — 하위 명령(`dump`, `outline`, `detect`, `refs`, `search`, `type`, `patch`, `template`, `mcp`, `agent`)과 예전 인자 형식 처리, 사용법·종료 코드.
+- [`CliArgs.cs`](../ModdingSupportTool/Cli/CliArgs.cs) — 위치 인자·옵션·플래그 파서 (`-i/-o/-t` 별칭).
 
----
+### 📂 `Core/`
+- [`AppPaths.cs`](../ModdingSupportTool/Core/AppPaths.cs) — 버전, exe 경로, 저장소 루트, 기본 출력 폴더, MCP 서버 이름.
+- [`BuiltinSignatureDumper.cs`](../ModdingSupportTool/Core/BuiltinSignatureDumper.cs) — 리플렉션 시그니처 덤퍼 (앱·독립 프로젝트 공용 소스, net472 호환). 스트림 로드, 의존성 캐시, Il2CppInterop 멤버 생략, 병렬 분석/쓰기.
+- [`SignatureDumperExporter.cs`](../ModdingSupportTool/Core/SignatureDumperExporter.cs) — 위 파일을 리소스에서 꺼내 독립 프로젝트로 내보냄.
+- [`RoslynOutliner.cs`](../ModdingSupportTool/Core/RoslynOutliner.cs) — 메서드·접근자 본문을 지운 AI 아웃라인 (병렬).
+- `Detection/`
+  - [`UnityBackend.cs`](../ModdingSupportTool/Core/Detection/UnityBackend.cs) — `Unknown`, `Mono`, `Il2Cpp`
+  - [`UnityBackendDetector.cs`](../ModdingSupportTool/Core/Detection/UnityBackendDetector.cs) — 파일 구조 기반 판별 (탐색 상한·취소)
+  - [`GameLocator.cs`](../ModdingSupportTool/Core/Detection/GameLocator.cs) — 게임 루트, `*_Data`, MelonLoader 폴더, `app.info` 회사명·제품명
+- `Reference/`
+  - [`ReferenceManifest.cs`](../ModdingSupportTool/Core/Reference/ReferenceManifest.cs) — `reference.json` 읽기/기록
+  - [`ReferenceIndex.cs`](../ModdingSupportTool/Core/Reference/ReferenceIndex.cs) — Roslyn 색인, 검색 점수, 타입 노드 찾기
+  - [`HarmonyPatchGenerator.cs`](../ModdingSupportTool/Core/Reference/HarmonyPatchGenerator.cs) — 실제 시그니처 기반 HarmonyX 패치 생성
+  - [`MelonModTemplate.cs`](../ModdingSupportTool/Core/Reference/MelonModTemplate.cs) — MelonLoader 모드 `.csproj` + `Core.cs` 생성
 
-### 📂 `ModdingSupportTool/Cli/` (콘솔 명령줄 모드)
+### 📂 `Services/`
+- [`DumpService.cs`](../ModdingSupportTool/Services/DumpService.cs) — 덤프 계획(`Plan`), 대상 DLL 결정, SignatureDumper/ilspycmd 실행, 아웃라인, `reference.json` 기록, 덤프한 내용 전달(`CaptureWrittenSources`).
+- [`PresetService.cs`](../ModdingSupportTool/Services/PresetService.cs) — 리듬게임 경로 프리셋 (GUI 버튼과 `--cli` 기본 경로가 같은 목록을 씀).
+- [`IFilePickerService.cs`](../ModdingSupportTool/Services/IFilePickerService.cs) / [`FilePickerService.cs`](../ModdingSupportTool/Services/FilePickerService.cs) — Avalonia 파일/폴더 선택 추상화.
 
-- [`CliRunner.cs`](file:///h:/source/repos/modding%20support%20tool/ModdingSupportTool/Cli/CliRunner.cs):
-  - 명령줄 인수 파싱 (`-i`, `-o`, `-t` 등).
-  - 콘솔 UTF-8 인코딩 세팅 및 실시간 진행 상태 출력.
-  - `Ctrl + C` 인터럽트 안전 취소 핸들러 연동.
-  - 백엔드 감지 -> 엔진 선택 -> [`DumpService`](file:///h:/source/repos/modding%20support%20tool/ModdingSupportTool/Services/DumpService.cs) 실행 파이프라인 총괄.
+### 📂 `Models/`
+- [`DumpEngineType.cs`](../ModdingSupportTool/Models/DumpEngineType.cs) — `SignatureDumper`, `IlSpyCmd`.
 
----
+### 📂 `ViewModels/` · `Views/`
+- [`MainViewModel.cs`](../ModdingSupportTool/ViewModels/MainViewModel.cs) — 디바운스·백그라운드 판별, 로그 묶음 갱신, 프리셋 항목, 덤프·취소·내보내기·에이전트 설치 명령.
+- [`MainWindow.axaml`](../ModdingSupportTool/Views/MainWindow.axaml) — 헤더/엔진 선택, 입력·프리셋, 출력·옵션, AI 에이전트 연동, 실행 제어, 로그.
+- [`MainWindow.axaml.cs`](../ModdingSupportTool/Views/MainWindow.axaml.cs) — 새 로그가 오면 맨 아래로 스크롤.
 
-### 📂 `ModdingSupportTool/Services/` (비즈니스 서비스)
-
-- [`DumpService.cs`](file:///h:/source/repos/modding%20support%20tool/ModdingSupportTool/Services/DumpService.cs):
-  - `DumpRequest` 모델을 받아 실제 덤프 작업을 총괄.
-  - `SignatureDumper`: `BuiltinSignatureDumper`를 백그라운드 태스크로 구동.
-  - `IlSpyCmd`: 시스템에 설치된 `ilspycmd` 외부 프로세스를 실행하고 표준 출력/에러 스트림을 비동기 가로채기. 취소 시 프로세스 트리 전체 강제 종료.
-  - 두 엔진 모두 덤프 전에 `<Output>/<ModuleName>` 폴더를 비워 예전 결과가 섞이지 않게 함.
-- [`PresetService.cs`](file:///h:/source/repos/modding%20support%20tool/ModdingSupportTool/Services/PresetService.cs):
-  - 주로 분석하는 게임들의 경로 프리셋 관리 (*Muse Dash*, *A Short Hike*, *Sixtar Gate*, *MiSide*).
-  - 시스템에 존재하는 기본 경로를 우선 탐색하는 `ResolveInitialPath()` 제공.
-- [`IFilePickerService.cs`](file:///h:/source/repos/modding%20support%20tool/ModdingSupportTool/Services/IFilePickerService.cs) / [`FilePickerService.cs`](file:///h:/source/repos/modding%20support%20tool/ModdingSupportTool/Services/FilePickerService.cs):
-  - Avalonia 12의 `IStorageProvider`를 추상화하여 폴더 및 DLL 파일 선택 대화상자를 MVVM 패턴에 맞게 비동기 호출.
+### 📂 `Assets/`
+- `app-icon.ico` / `app-icon.png` — 앱 아이콘. `avalonia-logo.ico` — 하위 호환용 동일 아이콘.
 
 ---
 
-### 📂 `ModdingSupportTool/Models/` (데이터 모델)
+## 📁 4. 출력 폴더 (`Decompiled/`)
 
-- [`DumpEngineType.cs`](file:///h:/source/repos/modding%20support%20tool/ModdingSupportTool/Models/DumpEngineType.cs):
-  - 덤프 엔진 구분 열거형 (`SignatureDumper`, `IlSpyCmd`).
-
----
-
-### 📂 `ModdingSupportTool/ViewModels/` (MVVM 뷰모델)
-
-- [`ViewModelBase.cs`](file:///h:/source/repos/modding%20support%20tool/ModdingSupportTool/ViewModels/ViewModelBase.cs):
-  - 모든 뷰모델의 기본 클래스 (`CommunityToolkit.Mvvm.ComponentModel.ObservableObject` 상속).
-- [`MainViewModel.cs`](file:///h:/source/repos/modding%20support%20tool/ModdingSupportTool/ViewModels/MainViewModel.cs):
-  - GUI 전체 상태를 관장하는 메인 뷰모델.
-  - 입력 경로가 바뀔 때마다 백엔드 감지(`UnityBackendDetector.Detect`).
-  - Il2Cpp <-> Mono에 따른 라디오 버튼 및 옵션 UI 자동 전환.
-  - 덤프 시작(`StartDumpCommand`), 취소(`CancelDumpCommand`), 로그 지우기, 탐색기 열기, 프리셋 적용 커맨드 제공.
-
----
-
-### 📂 `ModdingSupportTool/Views/` (UI 화면 뷰)
-
-- [`MainWindow.axaml`](file:///h:/source/repos/modding%20support%20tool/ModdingSupportTool/Views/MainWindow.axaml):
-  - Fluent 다크 테마 기반의 XAML 레이아웃.
-  - 5개 영역 분할: (1) 헤더 및 엔진 선택 (2) 입력 경로 및 백엔드 감지 상태 (3) 출력 설정 (4) 실행/취소 제어바 (5) 실시간 가상 터미널 로그 뷰어.
-- [`MainWindow.axaml.cs`](file:///h:/source/repos/modding%20support%20tool/ModdingSupportTool/Views/MainWindow.axaml.cs):
-  - 코드 비하인드 (순수 컴포넌트 초기화 담당).
-
----
-
-### 📂 `ModdingSupportTool/Assets/` (리소스)
-
-- [`app-icon.ico`](file:///h:/source/repos/modding%20support%20tool/ModdingSupportTool/Assets/app-icon.ico) / [`app-icon.png`](file:///h:/source/repos/modding%20support%20tool/ModdingSupportTool/Assets/app-icon.png):
-  - 네온 사이버네틱 렌치와 게임패드, C# 코드 브래킷 모티브의 모딩 툴 공식 전용 아이콘 (창 아이콘, 실행 바이너리 아이콘, README 로고).
-- [`avalonia-logo.ico`](file:///h:/source/repos/modding%20support%20tool/ModdingSupportTool/Assets/avalonia-logo.ico):
-  - 하위 호환성을 위해 새 아이콘과 동일하게 치환 유지된 아이콘.
-
----
-
-## 📁 4. 배포 및 출력 디렉터리 (`Publish/`, `Decompiled/`)
-
-- [`Publish/`](file:///h:/source/repos/modding%20support%20tool/Publish):
-  - `publish.bat` 실행 시 생성되는 자체 완결형 단일 실행 바이너리(`ModdingSupportTool.exe`)가 위치합니다.
-- [`Decompiled/`](file:///h:/source/repos/modding%20support%20tool/Decompiled):
-  - 덤프 실행 시 결과물이 저장되는 기본 폴더입니다.
-  - 예시: `Decompiled/Assembly-CSharp/AchieveModel.cs`, `DBMMusic.cs`, `BeatWave.cs` 등 네임스페이스 및 클래스별 C# 스켈레톤 파일들이 구조화되어 보관됩니다.
+```
+Decompiled/                         # GUI/CLI 기본 출력 (에이전트 덤프는 Decompiled/<게임 이름>/)
+├── reference.json                  # 게임·백엔드·모듈 정보
+├── Assembly-CSharp/<Namespace>/<Type>.cs
+└── Assembly-CSharp-firstpass/...
+Decompiled_Outline/                 # Mono(ilspycmd)일 때만: 본문을 지운 아웃라인
+```
