@@ -1,5 +1,7 @@
 using System;
+using System.IO;
 using System.Runtime.InteropServices;
+using System.Text;
 using Avalonia;
 using ModdingSupportTool.Cli;
 
@@ -13,32 +15,56 @@ sealed class Program
     [DllImport("kernel32.dll", SetLastError = true)]
     private static extern bool AllocConsole();
 
-    private const int AttachParentProcess = -1;
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern IntPtr GetStdHandle(int nStdHandle);
 
-    private static readonly string[] CliFlags =
-        { "--cli", "--auto", "-i", "--input", "-o", "--output", "-t", "--targets", "--outline", "-outline", "--no-outline", "--help", "-h" };
+    [DllImport("kernel32.dll")]
+    private static extern uint GetFileType(IntPtr hFile);
+
+    private const int AttachParentProcess = -1;
+    private const int StdOutputHandle = -11;
+    private const uint FileTypeDisk = 0x0001, FileTypePipe = 0x0003;
 
     [STAThread]
     public static int Main(string[] args)
     {
-        // CLI 인자가 전달되었을 경우 콘솔 자동 실행 모드로 진입
-        if (args.Length > 0 && (Array.IndexOf(CliFlags, args[0]) >= 0 || !args[0].StartsWith("-")))
+        // 인자가 없으면 GUI, 있으면 CLI(하위 명령 또는 예전 덤프 인자)
+        if (args.Length == 0)
         {
-            if (!AttachConsole(AttachParentProcess))
-            {
-                AllocConsole();
-            }
-
-            var stdOut = new System.IO.StreamWriter(Console.OpenStandardOutput(), System.Text.Encoding.UTF8) { AutoFlush = true };
-            Console.SetOut(stdOut);
-            var stdErr = new System.IO.StreamWriter(Console.OpenStandardError(), System.Text.Encoding.UTF8) { AutoFlush = true };
-            Console.SetError(stdErr);
-
-            return CliRunner.RunAsync(args).GetAwaiter().GetResult();
+            BuildAvaloniaApp().StartWithClassicDesktopLifetime(args);
+            return 0;
         }
 
-        BuildAvaloniaApp().StartWithClassicDesktopLifetime(args);
-        return 0;
+        // MCP 모드는 부모(에이전트)가 넘겨준 stdin/stdout 파이프를 그대로 써야 하므로 콘솔을 붙이지 않는다.
+        if (!args[0].Equals("mcp", StringComparison.OrdinalIgnoreCase))
+        {
+            PrepareConsole();
+        }
+
+        return CliRunner.RunAsync(args).GetAwaiter().GetResult();
+    }
+
+    // WinExe는 콘솔이 없으므로, 출력이 파이프/파일로 리디렉션되지 않았을 때만 부모 콘솔에 붙거나 새로 만든다.
+    // (에이전트가 파이프로 실행했는데 AllocConsole을 하면 출력이 새 창으로 가 버린다)
+    private static void PrepareConsole()
+    {
+        if (!IsOutputRedirected() && !AttachConsole(AttachParentProcess))
+        {
+            AllocConsole();
+        }
+
+        var utf8 = new UTF8Encoding(false);
+        Console.SetOut(new StreamWriter(Console.OpenStandardOutput(), utf8) { AutoFlush = true });
+        Console.SetError(new StreamWriter(Console.OpenStandardError(), utf8) { AutoFlush = true });
+    }
+
+    private static bool IsOutputRedirected()
+    {
+        if (!OperatingSystem.IsWindows()) return true;
+        IntPtr handle = GetStdHandle(StdOutputHandle);
+        if (handle == IntPtr.Zero || handle == new IntPtr(-1)) return false;
+        uint type = GetFileType(handle);
+        return type == FileTypeDisk || type == FileTypePipe;
     }
 
     public static AppBuilder BuildAvaloniaApp()

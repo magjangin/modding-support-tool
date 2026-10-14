@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Threading;
 
 namespace ModdingSupportTool.Core.Detection;
 
@@ -15,13 +16,16 @@ public static class UnityBackendDetector
 {
     private const int MaxScanDepth = 8;
 
+    // 드라이브 루트처럼 거대한 폴더를 넣어도 UI가 멈추지 않도록 방문할 폴더 수에 상한을 둔다.
+    private const int MaxVisitedDirectories = 4000;
+
     private static readonly string[] IgnoredKeywords =
         { "BepInEx", "Voice Editor", "Modded", "BackUpThisFolder", "__MACOSX" };
 
     private static readonly string[] MonoAssemblies =
         { "Assembly-CSharp.dll", "Assembly-CSharp-firstpass.dll", "UnityEngine.dll", "UnityEngine.CoreModule.dll" };
 
-    public static UnityDetectionResult Detect(string path)
+    public static UnityDetectionResult Detect(string path, CancellationToken ct = default)
     {
         if (string.IsNullOrWhiteSpace(path))
         {
@@ -33,16 +37,20 @@ public static class UnityBackendDetector
             // 1. 단일 파일인 경우
             if (File.Exists(path))
             {
-                return DetectFromFile(path);
+                return DetectFromFile(path, ct);
             }
 
             // 2. 디렉터리인 경우
             if (Directory.Exists(path))
             {
-                return DetectFromDirectory(path);
+                return DetectFromDirectory(path, ct);
             }
 
             return new UnityDetectionResult(UnityBackend.Unknown, "존재하지 않는 파일 또는 폴더입니다.");
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
         }
         catch (Exception ex)
         {
@@ -50,7 +58,7 @@ public static class UnityBackendDetector
         }
     }
 
-    private static UnityDetectionResult DetectFromFile(string filePath)
+    private static UnityDetectionResult DetectFromFile(string filePath, CancellationToken ct)
     {
         string? dir = Path.GetDirectoryName(filePath);
         if (string.IsNullOrEmpty(dir))
@@ -69,7 +77,7 @@ public static class UnityBackendDetector
         }
 
         // 상위 디렉터리에서 Unity 백엔드 분석 수행
-        var dirResult = DetectFromDirectory(dir);
+        var dirResult = DetectFromDirectory(dir, ct);
         if (dirResult.Backend != UnityBackend.Unknown)
         {
             return dirResult with { RecommendedAssemblyPath = filePath };
@@ -79,7 +87,7 @@ public static class UnityBackendDetector
         string? parent = Directory.GetParent(dir)?.FullName;
         if (parent != null)
         {
-            var parentResult = DetectFromDirectory(parent);
+            var parentResult = DetectFromDirectory(parent, ct);
             if (parentResult.Backend != UnityBackend.Unknown)
             {
                 return parentResult with { RecommendedAssemblyPath = filePath };
@@ -89,7 +97,7 @@ public static class UnityBackendDetector
         return new UnityDetectionResult(UnityBackend.Unknown, "어셈블리에서 Unity 백엔드를 판별할 수 없습니다.", filePath);
     }
 
-    private static UnityDetectionResult DetectFromDirectory(string dir)
+    private static UnityDetectionResult DetectFromDirectory(string dir, CancellationToken ct)
     {
         // A. 특수 폴더 이름 직접 매칭: MelonLoader/Il2CppAssemblies
         if (dir.EndsWith("Il2CppAssemblies", StringComparison.OrdinalIgnoreCase) ||
@@ -137,7 +145,7 @@ public static class UnityBackendDetector
         }
 
         // D. 게임 설치 루트 디렉터리 탐색 (steam game tool UnityInspector 로직)
-        return ScanGameDirectory(dir);
+        return ScanGameDirectory(dir, ct);
     }
 
     private static UnityDetectionResult? CheckDataDirectory(string dataDir)
@@ -209,7 +217,7 @@ public static class UnityBackendDetector
         return null;
     }
 
-    private static UnityDetectionResult ScanGameDirectory(string installDir)
+    private static UnityDetectionResult ScanGameDirectory(string installDir, CancellationToken ct)
     {
         // MelonLoader/Il2CppAssemblies가 최상위에 있는 경우
         string melonAssembliesPath = Path.Combine(installDir, "MelonLoader", "Il2CppAssemblies");
@@ -220,9 +228,11 @@ public static class UnityBackendDetector
         stack.Push((installDir, 0));
 
         var dataDirs = new List<string>();
+        int visited = 0;
 
-        while (stack.Count > 0)
+        while (stack.Count > 0 && visited++ < MaxVisitedDirectories)
         {
+            ct.ThrowIfCancellationRequested();
             var (current, depth) = stack.Pop();
 
             string[] subDirs;

@@ -15,50 +15,49 @@ public sealed record OutlineStats(
     int ProcessedFiles,
     int OriginalLines,
     int OutlineLines,
-    int FailedFiles)
+    int FailedFiles,
+    long OriginalChars = 0,
+    long OutlineChars = 0)
 {
-    public double LineReductionPercent => OriginalLines > 0 
-        ? Math.Round((1.0 - (double)OutlineLines / OriginalLines) * 100, 1) 
-        : 0.0;
+    public double LineReductionPercent => Percent(OriginalLines, OutlineLines);
+
+    // 토큰 수는 줄 수보다 글자 수에 비례하므로 에이전트 관점의 절감률은 이쪽이 더 정확하다.
+    public double CharReductionPercent => Percent(OriginalChars, OutlineChars);
+
+    private static double Percent(double original, double outline) =>
+        original > 0 ? Math.Round((1.0 - outline / original) * 100, 1) : 0.0;
 }
 
 /// <summary>
-/// Roslyn AST 구문 분석을 활용하여 C# 소스 코드에서 메서드/프로퍼티의 세부 구현 본문만을 비우고
-/// 시그니처, 필드, 어트리뷰트, 문서 주석만을 남겨 AI 프롬프트 토큰을 극대화하여 절약하는 아웃라이너.
+/// Roslyn 구문 트리로 C# 소스에서 메서드·생성자·접근자 본문을 제거하고 시그니처, 필드, 어트리뷰트, 문서 주석만 남긴다.
+/// 결과는 SignatureDumper 스켈레톤과 같은 "선언;" 형태라서 에이전트가 두 형식을 똑같이 읽을 수 있다.
 /// </summary>
 public static class RoslynOutliner
 {
-    private static readonly BlockSyntax MethodStubBlock = SyntaxFactory.Block()
-        .WithOpenBraceToken(SyntaxFactory.Token(SyntaxFactory.TriviaList(SyntaxFactory.Space), SyntaxKind.OpenBraceToken, SyntaxFactory.TriviaList()))
-        .WithCloseBraceToken(SyntaxFactory.Token(
-            SyntaxFactory.TriviaList(SyntaxFactory.Comment("/* ... */ ")),
-            SyntaxKind.CloseBraceToken,
-            SyntaxFactory.TriviaList(SyntaxFactory.CarriageReturnLineFeed)));
+    public const string FileHeader = "// [AI outline] 메서드 본문 생략됨 · 전체 소스는 _Outline이 없는 폴더의 같은 경로";
 
-    /// <summary>
-    /// 단일 C# 소스 문자열을 아웃라인 스켈레톤 코드로 변환합니다.
-    /// </summary>
-    public static string GenerateOutline(string sourceCode)
+    // 문서 주석을 구조로 파싱하지 않으면(DocumentationMode.None) 파싱이 빨라지고, 주석은 일반 trivia로 그대로 보존된다.
+    internal static readonly CSharpParseOptions ParseOptions =
+        CSharpParseOptions.Default.WithLanguageVersion(LanguageVersion.Preview).WithDocumentationMode(DocumentationMode.None);
+
+    private static readonly UTF8Encoding Utf8NoBom = new(false);
+
+    /// <summary>단일 C# 소스 문자열을 아웃라인 코드로 변환한다.</summary>
+    public static string GenerateOutline(string sourceCode, CancellationToken ct = default)
     {
         if (string.IsNullOrWhiteSpace(sourceCode)) return sourceCode;
 
-        var syntaxTree = CSharpSyntaxTree.ParseText(sourceCode);
-        var root = syntaxTree.GetRoot();
-
-        var rewriter = new OutlineRewriter();
-        var strippedRoot = rewriter.Visit(root);
-
-        return strippedRoot.ToFullString();
+        var root = CSharpSyntaxTree.ParseText(sourceCode, ParseOptions, cancellationToken: ct).GetRoot(ct);
+        return new OutlineRewriter().Visit(root).ToFullString();
     }
 
-    /// <summary>
-    /// 디렉터리 내의 모든 .cs 파일에 대해 아웃라인을 생성하여 출력 디렉터리에 동일한 구조로 저장합니다.
-    /// </summary>
+    /// <summary>디렉터리의 모든 .cs 파일을 병렬로 아웃라인 변환해 같은 상대 경로로 저장한다.</summary>
     public static async Task<OutlineStats> ProcessDirectoryAsync(
         string sourceDir,
         string targetDir,
         Action<string>? log = null,
-        CancellationToken ct = default)
+        CancellationToken ct = default,
+        Action<string, string>? fileWritten = null)
     {
         if (!Directory.Exists(sourceDir))
         {
@@ -66,43 +65,30 @@ public static class RoslynOutliner
         }
 
         Directory.CreateDirectory(targetDir);
+        string[] csFiles = EnumerateSourceFiles(sourceDir).ToArray();
 
-        var csFiles = Directory.GetFiles(sourceDir, "*.cs", SearchOption.AllDirectories)
-            // obj, bin 등 임시 폴더는 제외
-            .Where(f => !f.Contains(Path.DirectorySeparatorChar + "obj" + Path.DirectorySeparatorChar) &&
-                        !f.Contains(Path.DirectorySeparatorChar + "bin" + Path.DirectorySeparatorChar))
-            .ToArray();
+        int processed = 0, failed = 0, originalLines = 0, outlineLines = 0;
+        long originalChars = 0, outlineChars = 0;
 
-        int processed = 0;
-        int failed = 0;
-        int originalLines = 0;
-        int outlineLines = 0;
-
-        foreach (var file in csFiles)
+        var options = new ParallelOptions { CancellationToken = ct, MaxDegreeOfParallelism = Environment.ProcessorCount };
+        await Parallel.ForEachAsync(csFiles, options, async (file, token) =>
         {
-            ct.ThrowIfCancellationRequested();
-
+            string relPath = Path.GetRelativePath(sourceDir, file);
             try
             {
-                string relPath = Path.GetRelativePath(sourceDir, file);
+                string content = await File.ReadAllTextAsync(file, token);
+                string outlined = FileHeader + Environment.NewLine + GenerateOutline(content, token);
+
                 string destPath = Path.Combine(targetDir, relPath);
+                Directory.CreateDirectory(Path.GetDirectoryName(destPath)!);
+                await File.WriteAllTextAsync(destPath, outlined, Utf8NoBom, token);
+                fileWritten?.Invoke(destPath, outlined);
 
-                string? destDir = Path.GetDirectoryName(destPath);
-                if (destDir != null && !Directory.Exists(destDir))
-                {
-                    Directory.CreateDirectory(destDir);
-                }
-
-                string content = await File.ReadAllTextAsync(file, Encoding.UTF8, ct);
-                int fileOriginalLines = CountLines(content);
-                originalLines += fileOriginalLines;
-
-                string outlined = GenerateOutline(content);
-                int fileOutlineLines = CountLines(outlined);
-                outlineLines += fileOutlineLines;
-
-                await File.WriteAllTextAsync(destPath, outlined, Encoding.UTF8, ct);
-                processed++;
+                Interlocked.Add(ref originalLines, CountLines(content));
+                Interlocked.Add(ref outlineLines, CountLines(outlined));
+                Interlocked.Add(ref originalChars, content.Length);
+                Interlocked.Add(ref outlineChars, outlined.Length);
+                Interlocked.Increment(ref processed);
             }
             catch (OperationCanceledException)
             {
@@ -110,210 +96,157 @@ public static class RoslynOutliner
             }
             catch (Exception ex)
             {
-                failed++;
-                log?.Invoke($"  [경고] 아웃라인 변환 실패: {Path.GetFileName(file)} ({ex.Message})");
+                Interlocked.Increment(ref failed);
+                log?.Invoke($"  [경고] 아웃라인 변환 실패: {relPath} ({ex.Message})");
             }
-        }
+        });
 
-        // .csproj 파일이 원본에 있다면 함께 복사 (IDE/에디터 탐색 편의 제공)
-        try
+        // .csproj가 원본에 있으면 함께 복사한다. (IDE/에디터 탐색 편의)
+        foreach (var csproj in Directory.GetFiles(sourceDir, "*.csproj", SearchOption.TopDirectoryOnly))
         {
-            var csprojFiles = Directory.GetFiles(sourceDir, "*.csproj", SearchOption.TopDirectoryOnly);
-            foreach (var csproj in csprojFiles)
+            try
             {
-                string destCsproj = Path.Combine(targetDir, Path.GetFileName(csproj));
-                File.Copy(csproj, destCsproj, overwrite: true);
+                File.Copy(csproj, Path.Combine(targetDir, Path.GetFileName(csproj)), overwrite: true);
+            }
+            catch (Exception ex)
+            {
+                log?.Invoke($"  [경고] .csproj 복사 실패: {Path.GetFileName(csproj)} ({ex.Message})");
             }
         }
-        catch
-        {
-            // .csproj 복사 실패는 치명적이지 않음
-        }
 
-        return new OutlineStats(csFiles.Length, processed, originalLines, outlineLines, failed);
+        return new OutlineStats(csFiles.Length, processed, originalLines, outlineLines, failed, originalChars, outlineChars);
+    }
+
+    /// <summary>obj/bin 같은 빌드 산출물 폴더를 뺀 .cs 파일 목록.</summary>
+    internal static System.Collections.Generic.IEnumerable<string> EnumerateSourceFiles(string root)
+    {
+        var options = new EnumerationOptions { RecurseSubdirectories = true, IgnoreInaccessible = true };
+        return Directory.EnumerateFiles(root, "*.cs", options).Where(f => !IsBuildArtifact(Path.GetRelativePath(root, f)));
+    }
+
+    private static bool IsBuildArtifact(string relativePath)
+    {
+        foreach (var segment in relativePath.Split(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar))
+        {
+            if (segment.Equals("obj", StringComparison.OrdinalIgnoreCase) || segment.Equals("bin", StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static int CountLines(string text)
     {
         if (string.IsNullOrEmpty(text)) return 0;
         int count = 1;
-        for (int i = 0; i < text.Length; i++)
+        foreach (char c in text)
         {
-            if (text[i] == '\n') count++;
+            if (c == '\n') count++;
         }
         return count;
     }
 
     private sealed class OutlineRewriter : CSharpSyntaxRewriter
     {
-        // 1. 일반 메서드 (MethodDeclarationSyntax)
-        public override SyntaxNode? VisitMethodDeclaration(MethodDeclarationSyntax node)
-        {
-            var visited = (MethodDeclarationSyntax)base.VisitMethodDeclaration(node)!;
+        // 본문은 버릴 것이므로 base.VisitXxx로 본문 안까지 내려가지 않는다. (로컬 함수·람다도 함께 사라진다)
+        public override SyntaxNode? VisitMethodDeclaration(MethodDeclarationSyntax node) => StubBody(node);
+        public override SyntaxNode? VisitConstructorDeclaration(ConstructorDeclarationSyntax node) => StubBody(node);
+        public override SyntaxNode? VisitDestructorDeclaration(DestructorDeclarationSyntax node) => StubBody(node);
+        public override SyntaxNode? VisitOperatorDeclaration(OperatorDeclarationSyntax node) => StubBody(node);
+        public override SyntaxNode? VisitConversionOperatorDeclaration(ConversionOperatorDeclarationSyntax node) => StubBody(node);
 
-            if (visited.Body != null)
-            {
-                return visited.WithBody(MethodStubBlock);
-            }
-
-            if (visited.ExpressionBody != null)
-            {
-                return visited
-                    .WithExpressionBody(null)
-                    .WithSemicolonToken(default)
-                    .WithBody(MethodStubBlock);
-            }
-
-            return visited;
-        }
-
-        // 2. 생성자 (ConstructorDeclarationSyntax)
-        public override SyntaxNode? VisitConstructorDeclaration(ConstructorDeclarationSyntax node)
-        {
-            var visited = (ConstructorDeclarationSyntax)base.VisitConstructorDeclaration(node)!;
-
-            if (visited.Body != null)
-            {
-                return visited.WithBody(MethodStubBlock);
-            }
-
-            if (visited.ExpressionBody != null)
-            {
-                return visited
-                    .WithExpressionBody(null)
-                    .WithSemicolonToken(default)
-                    .WithBody(MethodStubBlock);
-            }
-
-            return visited;
-        }
-
-        // 3. 소멸자 (DestructorDeclarationSyntax)
-        public override SyntaxNode? VisitDestructorDeclaration(DestructorDeclarationSyntax node)
-        {
-            var visited = (DestructorDeclarationSyntax)base.VisitDestructorDeclaration(node)!;
-
-            if (visited.Body != null)
-            {
-                return visited.WithBody(MethodStubBlock);
-            }
-
-            if (visited.ExpressionBody != null)
-            {
-                return visited
-                    .WithExpressionBody(null)
-                    .WithSemicolonToken(default)
-                    .WithBody(MethodStubBlock);
-            }
-
-            return visited;
-        }
-
-        // 4. 연산자 오버로딩 (OperatorDeclarationSyntax, ConversionOperatorDeclarationSyntax)
-        public override SyntaxNode? VisitOperatorDeclaration(OperatorDeclarationSyntax node)
-        {
-            var visited = (OperatorDeclarationSyntax)base.VisitOperatorDeclaration(node)!;
-
-            if (visited.Body != null)
-            {
-                return visited.WithBody(MethodStubBlock);
-            }
-
-            if (visited.ExpressionBody != null)
-            {
-                return visited
-                    .WithExpressionBody(null)
-                    .WithSemicolonToken(default)
-                    .WithBody(MethodStubBlock);
-            }
-
-            return visited;
-        }
-
-        public override SyntaxNode? VisitConversionOperatorDeclaration(ConversionOperatorDeclarationSyntax node)
-        {
-            var visited = (ConversionOperatorDeclarationSyntax)base.VisitConversionOperatorDeclaration(node)!;
-
-            if (visited.Body != null)
-            {
-                return visited.WithBody(MethodStubBlock);
-            }
-
-            if (visited.ExpressionBody != null)
-            {
-                return visited
-                    .WithExpressionBody(null)
-                    .WithSemicolonToken(default)
-                    .WithBody(MethodStubBlock);
-            }
-
-            return visited;
-        }
-
-        // 5. 프로퍼티 (PropertyDeclarationSyntax)
+        // public int Score => m_score + 10;  ->  public int Score { get; }
         public override SyntaxNode? VisitPropertyDeclaration(PropertyDeclarationSyntax node)
         {
-            var visited = (PropertyDeclarationSyntax)base.VisitPropertyDeclaration(node)!;
-
-            // Expression body 프로퍼티: public int Score => m_score + 10;
-            // -> public int Score { get; }
-            if (visited.ExpressionBody != null)
+            if (node.ExpressionBody != null)
             {
-                var getter = SyntaxFactory.AccessorDeclaration(SyntaxKind.GetAccessorDeclaration)
-                    .WithSemicolonToken(SyntaxFactory.Token(SyntaxKind.SemicolonToken));
-                var accessorList = SyntaxFactory.AccessorList(SyntaxFactory.SingletonList(getter));
-
-                return visited
-                    .WithExpressionBody(null)
-                    .WithSemicolonToken(default)
-                    .WithAccessorList(accessorList);
+                return ReplaceExpressionBodyWithGetter(node, node.ExpressionBody, node.SemicolonToken,
+                    (n, list) => n.WithExpressionBody(null).WithSemicolonToken(default).WithAccessorList(list));
             }
 
-            return visited;
+            return CollapseAccessorList((PropertyDeclarationSyntax)base.VisitPropertyDeclaration(node)!);
         }
 
-        // 6. 프로퍼티 / 인덱서 / 이벤트 접근자 (AccessorDeclarationSyntax)
-        public override SyntaxNode? VisitAccessorDeclaration(AccessorDeclarationSyntax node)
-        {
-            var visited = (AccessorDeclarationSyntax)base.VisitAccessorDeclaration(node)!;
-
-            // get { return _x; } -> get;
-            // set { _x = value; } -> set;
-            if (visited.Body != null)
-            {
-                return visited
-                    .WithBody(null)
-                    .WithSemicolonToken(SyntaxFactory.Token(SyntaxKind.SemicolonToken));
-            }
-
-            if (visited.ExpressionBody != null)
-            {
-                return visited
-                    .WithExpressionBody(null)
-                    .WithSemicolonToken(SyntaxFactory.Token(SyntaxKind.SemicolonToken));
-            }
-
-            return visited;
-        }
-
-        // 7. 인덱서 (IndexerDeclarationSyntax)
         public override SyntaxNode? VisitIndexerDeclaration(IndexerDeclarationSyntax node)
         {
-            var visited = (IndexerDeclarationSyntax)base.VisitIndexerDeclaration(node)!;
-
-            if (visited.ExpressionBody != null)
+            if (node.ExpressionBody != null)
             {
-                var getter = SyntaxFactory.AccessorDeclaration(SyntaxKind.GetAccessorDeclaration)
-                    .WithSemicolonToken(SyntaxFactory.Token(SyntaxKind.SemicolonToken));
-                var accessorList = SyntaxFactory.AccessorList(SyntaxFactory.SingletonList(getter));
-
-                return visited
-                    .WithExpressionBody(null)
-                    .WithSemicolonToken(default)
-                    .WithAccessorList(accessorList);
+                return ReplaceExpressionBodyWithGetter(node, node.ExpressionBody, node.SemicolonToken,
+                    (n, list) => n.WithExpressionBody(null).WithSemicolonToken(default).WithAccessorList(list));
             }
 
-            return visited;
+            return CollapseAccessorList((IndexerDeclarationSyntax)base.VisitIndexerDeclaration(node)!);
         }
+
+        public override SyntaxNode? VisitEventDeclaration(EventDeclarationSyntax node) =>
+            CollapseAccessorList((EventDeclarationSyntax)base.VisitEventDeclaration(node)!);
+
+        // get { return _x; } -> get;
+        public override SyntaxNode? VisitAccessorDeclaration(AccessorDeclarationSyntax node)
+        {
+            if (node.Body == null && node.ExpressionBody == null) return node;
+
+            var trailing = node.GetLastToken().TrailingTrivia;
+            var trimmed = TrimBeforeBody(node, node.Body?.OpenBraceToken ?? node.ExpressionBody!.ArrowToken);
+            return trimmed
+                .WithBody(null)
+                .WithExpressionBody(null)
+                .WithSemicolonToken(SyntaxFactory.Token(SyntaxKind.SemicolonToken).WithTrailingTrivia(trailing));
+        }
+
+        // void Foo()\n{ ... }  ->  void Foo();   (원래 선언 끝의 줄바꿈은 세미콜론 뒤로 옮긴다)
+        private static SyntaxNode StubBody(BaseMethodDeclarationSyntax node)
+        {
+            if (node.Body == null && node.ExpressionBody == null) return node;
+
+            var trailing = node.GetLastToken().TrailingTrivia;
+            var trimmed = TrimBeforeBody(node, node.Body?.OpenBraceToken ?? node.ExpressionBody!.ArrowToken);
+            return trimmed
+                .WithBody(null)
+                .WithExpressionBody(null)
+                .WithSemicolonToken(SyntaxFactory.Token(SyntaxKind.SemicolonToken).WithTrailingTrivia(trailing));
+        }
+
+        // 본문 바로 앞 토큰(보통 닫는 괄호)의 줄바꿈을 지워서 세미콜론이 같은 줄에 붙게 한다.
+        private static T TrimBeforeBody<T>(T node, SyntaxToken bodyStart) where T : SyntaxNode
+        {
+            var previous = bodyStart.GetPreviousToken();
+            return node.ReplaceToken(previous, previous.WithTrailingTrivia());
+        }
+
+        private static T ReplaceExpressionBodyWithGetter<T>(
+            T node,
+            ArrowExpressionClauseSyntax expressionBody,
+            SyntaxToken semicolon,
+            Func<T, AccessorListSyntax, T> apply) where T : SyntaxNode
+        {
+            var trailing = semicolon.TrailingTrivia;
+            var getter = SyntaxFactory.AccessorDeclaration(SyntaxKind.GetAccessorDeclaration)
+                .WithLeadingTrivia(SyntaxFactory.Space)
+                .WithSemicolonToken(SyntaxFactory.Token(SyntaxKind.SemicolonToken));
+            var list = SingleLineAccessorList(SyntaxFactory.SingletonList(getter), trailing);
+            return apply(TrimBeforeBody(node, expressionBody.ArrowToken), list);
+        }
+
+        // 본문이 모두 사라진 접근자 목록은 { get; private set; } 한 줄로 합친다.
+        private static T CollapseAccessorList<T>(T node) where T : BasePropertyDeclarationSyntax
+        {
+            var list = node.AccessorList;
+            if (list == null || list.Accessors.Any(a => a.Body != null || a.ExpressionBody != null)) return node;
+
+            var accessors = SyntaxFactory.List(list.Accessors.Select(a =>
+                a.WithLeadingTrivia(SyntaxFactory.Space).WithTrailingTrivia()));
+            var collapsed = SingleLineAccessorList(accessors, list.CloseBraceToken.TrailingTrivia);
+
+            var trimmed = TrimBeforeBody(node, list.OpenBraceToken);
+            return (T)trimmed.WithAccessorList(collapsed);
+        }
+
+        private static AccessorListSyntax SingleLineAccessorList(SyntaxList<AccessorDeclarationSyntax> accessors, SyntaxTriviaList trailing) =>
+            SyntaxFactory.AccessorList(
+                SyntaxFactory.Token(SyntaxKind.OpenBraceToken).WithLeadingTrivia(SyntaxFactory.Space),
+                accessors,
+                SyntaxFactory.Token(SyntaxKind.CloseBraceToken).WithLeadingTrivia(SyntaxFactory.Space).WithTrailingTrivia(trailing));
     }
 }

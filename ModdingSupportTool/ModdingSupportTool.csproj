@@ -5,11 +5,20 @@
     <Nullable>enable</Nullable>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <ApplicationIcon>Assets\app-icon.ico</ApplicationIcon>
+    <Version>1.1.0</Version>
+    <Product>Modding Support Tool</Product>
+    <Description>MelonLoader 모드(DLL) 작성용 C# 레퍼런스 생성기 · AI 에이전트(MCP/스킬) 연동</Description>
   </PropertyGroup>
 
   <ItemGroup>
-    <Folder Include="Models\" />
     <AvaloniaResource Include="Assets\**" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- "SignatureDumper 소스 내보내기"가 앱과 똑같은 덤퍼 코어를 내보내도록 소스 파일 자체를 리소스로 넣는다 -->
+    <EmbeddedResource Include="Core\BuiltinSignatureDumper.cs" LogicalName="Export/SignatureDumper.cs" />
+    <!-- agent install이 설치하는 스킬(MD) 파일. 원본은 저장소 루트의 agent/skills -->
+    <EmbeddedResource Include="..\agent\skills\**\*" LogicalName="agent/skills/%(RecursiveDir)%(Filename)%(Extension)" />
   </ItemGroup>
 
   <ItemGroup>

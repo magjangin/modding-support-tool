@@ -1,0 +1,15 @@
+{
+  "name": "modding-support-tool",
+  "description": "MelonLoader 모드(DLL) 작성용 C# 레퍼런스 스킬 (Unity Mono/Il2Cpp)",
+  "owner": {
+    "name": "magjangin",
+    "url": "https://github.com/magjangin"
+  },
+  "plugins": [
+    {
+      "name": "modding-support-tool",
+      "source": "./agent",
+      "description": "MelonLoader 모드(DLL) 작성용 C# 레퍼런스 워크플로: 게임 어셈블리 덤프·검색, 실제 시그니처 기반 Harmony 패치와 모드 프로젝트 생성. Unreal Engine은 UE4SS를 쓰세요."
+    }
+  ]
+}

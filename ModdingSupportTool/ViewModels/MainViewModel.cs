@@ -1,13 +1,19 @@
 using System;
+using System.Collections.Concurrent;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using System.Linq;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using Avalonia;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Platform.Storage;
+using Avalonia.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using ModdingSupportTool.Agent;
 using ModdingSupportTool.Core;
 using ModdingSupportTool.Core.Detection;
 using ModdingSupportTool.Models;
@@ -15,12 +21,39 @@ using ModdingSupportTool.Services;
 
 namespace ModdingSupportTool.ViewModels;
 
+/// <summary>프리셋 버튼 하나. 이 PC에 경로가 없으면 버튼을 끈다.</summary>
+public sealed class PresetItem
+{
+    public PresetItem(PathPreset preset, Action<PathPreset> apply)
+    {
+        Preset = preset;
+        Exists = Directory.Exists(preset.Path);
+        ApplyCommand = new RelayCommand(() => apply(preset));
+    }
+
+    public PathPreset Preset { get; }
+    public string DisplayName => Preset.DisplayName;
+    public string ToolTip => Exists ? Preset.Path : $"{Preset.Path} (이 PC에 없음)";
+    public bool Exists { get; }
+    public IRelayCommand ApplyCommand { get; }
+}
+
 public partial class MainViewModel : ViewModelBase
 {
+    // 로그 창이 무한히 커지면 TextBox 레이아웃이 느려지므로 마지막 부분만 유지한다.
+    private const int MaxLogChars = 200_000;
+
     private readonly DumpService _dumpService;
     private readonly IFilePickerService _filePickerService;
+    private readonly ConcurrentQueue<string> _pendingLog = new();
+    private readonly StringBuilder _logBuffer = new();
+    private readonly DispatcherTimer _logTimer;
+
     private CancellationTokenSource? _cts;
-    private bool _isDetecting;
+    private CancellationTokenSource? _detectCts;
+    private Task _detectTask = Task.CompletedTask;
+    private DumpPlan? _lastPlan;
+    private bool _suppressDetection;
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(IsSignatureDumperSelected))]
@@ -31,10 +64,10 @@ public partial class MainViewModel : ViewModelBase
     private string _inputPath = string.Empty;
 
     [ObservableProperty]
-    private string _outputPath = @"H:\source\repos\modding support tool\Decompiled";
+    private string _outputPath = AppPaths.DefaultOutputDirectory;
 
     [ObservableProperty]
-    private string _targetAssemblies = "Assembly-CSharp.dll, Assembly-CSharp-firstpass.dll";
+    private string _targetAssemblies = DumpService.DefaultTargets;
 
     [ObservableProperty]
     private bool _ilSpyCreateProject = true;
@@ -44,6 +77,9 @@ public partial class MainViewModel : ViewModelBase
 
     [ObservableProperty]
     private bool _generateAiOutline = true;
+
+    [ObservableProperty]
+    private bool _includeInteropMembers;
 
     [ObservableProperty]
     private bool _hasOutlineFolder;
@@ -63,6 +99,7 @@ public partial class MainViewModel : ViewModelBase
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(StartDumpCommand))]
     [NotifyCanExecuteChangedFor(nameof(CancelDumpCommand))]
+    [NotifyCanExecuteChangedFor(nameof(InstallAgentCommand))]
     private bool _isBusy;
 
     [ObservableProperty]
@@ -70,6 +107,10 @@ public partial class MainViewModel : ViewModelBase
 
     [ObservableProperty]
     private string _logOutput = string.Empty;
+
+    public IReadOnlyList<PresetItem> Presets { get; }
+
+    public string McpCommandText => $"\"{AppPaths.ExecutablePath}\" mcp";
 
     public bool IsSignatureDumperSelected
     {
@@ -95,12 +136,6 @@ public partial class MainViewModel : ViewModelBase
         }
     }
 
-    partial void OnSelectedEngineChanged(DumpEngineType value)
-    {
-        OnPropertyChanged(nameof(IsSignatureDumperSelected));
-        OnPropertyChanged(nameof(IsIlSpySelected));
-    }
-
     public MainViewModel() : this(new DumpService(), new FilePickerService(GetStorageProvider))
     {
     }
@@ -110,20 +145,22 @@ public partial class MainViewModel : ViewModelBase
         _dumpService = dumpService;
         _filePickerService = filePickerService;
 
+        _logTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(100) };
+        _logTimer.Tick += (_, _) => FlushLog();
+        _logTimer.Start();
+
+        Presets = PresetService.Presets.Select(p => new PresetItem(p, preset => InputPath = preset.Path)).ToList();
         InputPath = PresetService.ResolveInitialPath();
-        DetectBackend(InputPath);
         RefreshHasOutlineFolder();
     }
 
     partial void OnInputPathChanged(string value)
     {
-        DetectBackend(value);
+        if (_suppressDetection) return;
+        _detectTask = DetectBackendAsync(value, debounce: true);
     }
 
-    partial void OnOutputPathChanged(string value)
-    {
-        RefreshHasOutlineFolder();
-    }
+    partial void OnOutputPathChanged(string value) => RefreshHasOutlineFolder();
 
     public void RefreshHasOutlineFolder()
     {
@@ -131,12 +168,17 @@ public partial class MainViewModel : ViewModelBase
         HasOutlineFolder = !string.IsNullOrWhiteSpace(outlineDir) && Directory.Exists(outlineDir);
     }
 
-    public void DetectBackend(string path)
+    // 경로를 입력하는 동안 키 입력마다 폴더를 뒤지지 않도록 잠깐 기다렸다가, UI 스레드 밖에서 판별한다.
+    // 새 입력이 오면 이전 판별은 취소한다.
+    private async Task DetectBackendAsync(string path, bool debounce)
     {
-        if (_isDetecting) return;
+        _detectCts?.Cancel();
+        var cts = new CancellationTokenSource();
+        _detectCts = cts;
 
         if (string.IsNullOrWhiteSpace(path))
         {
+            _lastPlan = null;
             DetectedBackend = UnityBackend.Unknown;
             DetectedBackendText = "경로 미입력";
             DetectionReasonText = string.Empty;
@@ -145,59 +187,44 @@ public partial class MainViewModel : ViewModelBase
 
         try
         {
-            _isDetecting = true;
-            var result = UnityBackendDetector.Detect(path);
-            DetectedBackend = result.Backend;
-            DetectionReasonText = result.Reason;
-
-            switch (result.Backend)
-            {
-                case UnityBackend.Il2Cpp:
-                    DetectedBackendText = "Unity IL2CPP";
-                    if (IsAutoDetectEnabled)
-                    {
-                        SelectedEngine = DumpEngineType.SignatureDumper;
-                        if (!string.IsNullOrEmpty(result.RecommendedAssemblyPath) &&
-                            result.RecommendedAssemblyPath != path &&
-                            Directory.Exists(result.RecommendedAssemblyPath))
-                        {
-                            AppendLog($"[엔진 자동 감지] IL2CPP 감지 ({result.Reason}) -> SignatureDumper (앱 내장) 자동 선택됨 & 어셈블리 경로 설정: {result.RecommendedAssemblyPath}");
-                            InputPath = result.RecommendedAssemblyPath;
-                        }
-                        else
-                        {
-                            AppendLog($"[엔진 자동 감지] IL2CPP 감지 ({result.Reason}) -> SignatureDumper (앱 내장) 선택됨");
-                        }
-                    }
-                    break;
-
-                case UnityBackend.Mono:
-                    DetectedBackendText = "Unity Mono";
-                    if (IsAutoDetectEnabled)
-                    {
-                        SelectedEngine = DumpEngineType.IlSpyCmd;
-                        if (!string.IsNullOrEmpty(result.RecommendedAssemblyPath) &&
-                            result.RecommendedAssemblyPath != path &&
-                            Directory.Exists(result.RecommendedAssemblyPath))
-                        {
-                            AppendLog($"[엔진 자동 감지] Mono 감지 ({result.Reason}) -> ilspycmd (Mono) 자동 선택됨 & 어셈블리 경로 설정: {result.RecommendedAssemblyPath}");
-                            InputPath = result.RecommendedAssemblyPath;
-                        }
-                        else
-                        {
-                            AppendLog($"[엔진 자동 감지] Mono 감지 ({result.Reason}) -> ilspycmd (Mono) 선택됨");
-                        }
-                    }
-                    break;
-
-                default:
-                    DetectedBackendText = "미감지 (비Unity / 수동 선택 필요)";
-                    break;
-            }
+            if (debounce) await Task.Delay(300, cts.Token);
+            DetectedBackendText = "판별 중...";
+            var plan = await Task.Run(() => DumpService.Plan(path, null, cts.Token), cts.Token);
+            if (!cts.IsCancellationRequested) ApplyDetection(plan);
         }
-        finally
+        catch (OperationCanceledException)
         {
-            _isDetecting = false;
+            // 더 새로운 입력이 들어와서 이 판별은 버린다.
+        }
+    }
+
+    private void ApplyDetection(DumpPlan plan)
+    {
+        _lastPlan = plan;
+        var result = plan.Detection;
+        DetectedBackend = result.Backend;
+        DetectionReasonText = result.Reason;
+        DetectedBackendText = result.Backend switch
+        {
+            UnityBackend.Il2Cpp => "Unity IL2CPP",
+            UnityBackend.Mono => "Unity Mono",
+            _ => "미감지 (비Unity / 수동 선택 필요)"
+        };
+
+        if (result.Backend == UnityBackend.Unknown || !IsAutoDetectEnabled) return;
+
+        SelectedEngine = plan.Engine;
+        string label = result.Backend == UnityBackend.Il2Cpp ? "IL2CPP" : "Mono";
+        if (plan.InputPathAdjusted)
+        {
+            AppendLog($"[엔진 자동 감지] {label} 감지 ({result.Reason}) -> {DumpService.EngineDisplayName(plan.Engine)} 자동 선택됨 & 어셈블리 경로 설정: {plan.InputPath}");
+            _suppressDetection = true;
+            try { InputPath = plan.InputPath; }
+            finally { _suppressDetection = false; }
+        }
+        else
+        {
+            AppendLog($"[엔진 자동 감지] {label} 감지 ({result.Reason}) -> {DumpService.EngineDisplayName(plan.Engine)} 선택됨");
         }
     }
 
@@ -241,19 +268,9 @@ public partial class MainViewModel : ViewModelBase
     }
 
     [RelayCommand]
-    private void ApplyPreset(string presetKey)
-    {
-        string? path = PresetService.GetPresetPath(presetKey);
-        if (!string.IsNullOrEmpty(path))
-        {
-            InputPath = path;
-        }
-    }
-
-    [RelayCommand]
     private void TriggerAutoDetect()
     {
-        DetectBackend(InputPath);
+        _detectTask = DetectBackendAsync(InputPath, debounce: false);
     }
 
     private bool CanStartDump() => !IsBusy;
@@ -269,6 +286,9 @@ public partial class MainViewModel : ViewModelBase
 
         try
         {
+            // 경로를 막 바꿨다면 판별이 끝나야 엔진·입력 폴더가 맞는다.
+            await _detectTask;
+
             var request = new DumpRequest
             {
                 Engine = SelectedEngine,
@@ -277,7 +297,10 @@ public partial class MainViewModel : ViewModelBase
                 TargetAssemblyNames = TargetAssemblies,
                 IlSpyCreateProject = IlSpyCreateProject,
                 IlSpyNestedDirectories = IlSpyNestedDirectories,
-                GenerateAiOutline = GenerateAiOutline
+                GenerateAiOutline = GenerateAiOutline,
+                IncludeInteropMembers = IncludeInteropMembers,
+                Backend = _lastPlan?.Detection.Backend ?? UnityBackend.Unknown,
+                Game = _lastPlan?.Game
             };
 
             var result = await _dumpService.RunDumpAsync(request, AppendLog, _cts.Token);
@@ -313,6 +336,8 @@ public partial class MainViewModel : ViewModelBase
     [RelayCommand]
     private void ClearLog()
     {
+        while (_pendingLog.TryDequeue(out _)) { }
+        _logBuffer.Clear();
         LogOutput = string.Empty;
     }
 
@@ -325,8 +350,7 @@ public partial class MainViewModel : ViewModelBase
     [RelayCommand]
     private void OpenOutlineFolder()
     {
-        string outlineDir = DumpService.GetOutlineDirectory(OutputPath);
-        OpenFolderInExplorer(outlineDir);
+        OpenFolderInExplorer(DumpService.GetOutlineDirectory(OutputPath));
     }
 
     [RelayCommand]
@@ -345,10 +369,7 @@ public partial class MainViewModel : ViewModelBase
         {
             await SignatureDumperExporter.ExportToDirectoryAsync(targetFolder);
             AppendLog($"[내보내기 성공] SignatureDumper 프로젝트가 다음 경로에 생성되었습니다:\n  {targetFolder}");
-            AppendLog("  - SignatureDumper.csproj (net472;net8.0 지원)");
-            AppendLog("  - Program.cs");
-            AppendLog("  - SignatureDumper.cs");
-            AppendLog("  - README.md");
+            foreach (var file in SignatureDumperExporter.ExportedFiles) AppendLog($"  - {file}");
 
             StatusMessage = "SignatureDumper 소스 내보내기 완료";
             OpenFolderInExplorer(targetFolder);
@@ -358,6 +379,37 @@ public partial class MainViewModel : ViewModelBase
             AppendLog($"[내보내기 실패] {ex.Message}");
             StatusMessage = "내보내기 실패";
         }
+    }
+
+    // ───────────────────────────── AI 에이전트 연동 ─────────────────────────────
+
+    [RelayCommand(CanExecute = nameof(CanStartDump))]
+    private async Task InstallAgentAsync()
+    {
+        IsBusy = true;
+        StatusMessage = "AI 에이전트 연동 설치 중...";
+        try
+        {
+            // 이 PC에서 감지된 에이전트(Claude Code, Antigravity, Gemini CLI)에 스킬 설치 + MCP 등록
+            bool ok = await Task.Run(() => AgentInstaller.InstallAsync(new AgentInstallOptions { UserScope = true, RegisterMcp = true }, AppendLog));
+            StatusMessage = ok ? "AI 에이전트 연동 완료 (에이전트 재시작 필요)" : "AI 에이전트 연동 일부 실패 (로그 확인)";
+        }
+        catch (Exception ex)
+        {
+            AppendLog($"[에이전트 설치 오류] {ex.Message}");
+            StatusMessage = "AI 에이전트 연동 실패";
+        }
+        finally
+        {
+            IsBusy = false;
+        }
+    }
+
+    [RelayCommand]
+    private void ShowAgentStatus()
+    {
+        AgentInstaller.PrintStatus(new AgentInstallOptions(), AppendLog);
+        AppendLog($"MCP 서버 명령: {McpCommandText}");
     }
 
     private void OpenFolderInExplorer(string path)
@@ -383,11 +435,26 @@ public partial class MainViewModel : ViewModelBase
         }
     }
 
-    private void AppendLog(string message)
+    // 어느 스레드에서 불러도 된다. 실제 화면 반영은 FlushLog가 100ms마다 모아서 한 번에 한다.
+    private void AppendLog(string message) => _pendingLog.Enqueue(message);
+
+    private void FlushLog()
     {
-        Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+        if (_pendingLog.IsEmpty) return;
+
+        while (_pendingLog.TryDequeue(out var line))
         {
-            LogOutput += (string.IsNullOrEmpty(LogOutput) ? "" : "\n") + message;
-        });
+            if (_logBuffer.Length > 0) _logBuffer.Append('\n');
+            _logBuffer.Append(line);
+        }
+
+        if (_logBuffer.Length > MaxLogChars)
+        {
+            int cut = _logBuffer.Length - MaxLogChars;
+            int newline = _logBuffer.ToString(cut, Math.Min(4096, _logBuffer.Length - cut)).IndexOf('\n');
+            _logBuffer.Remove(0, newline >= 0 ? cut + newline + 1 : cut);
+        }
+
+        LogOutput = _logBuffer.ToString();
     }
 }
