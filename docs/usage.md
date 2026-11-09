@@ -64,8 +64,18 @@ ModdingSupportTool.exe search "PlayerController" --ref ".\Decompiled\MuseDash"
 ModdingSupportTool.exe search "*Score*" --kind method --ns Il2CppAssets --ref ".\Decompiled\MuseDash"
 ModdingSupportTool.exe type "AccountCanvas" --member "OnBtnLoginClick" --ref ".\Decompiled\MuseDash"
 ModdingSupportTool.exe patch "AccountCanvas" "OnBtnLoginClick" --kind postfix --ref ".\Decompiled\MuseDash"
+ModdingSupportTool.exe closures "AccountCanvas" "OnBtnLoginClick" --dummy "H:\muse dash hwa" --ref ".\Decompiled\MuseDash"
 ModdingSupportTool.exe template "H:\muse dash hwa" "MyFirstMod" --author "me" --out "D:\Mods\MyFirstMod"
 ```
+
+### 훅이 안 잡힐 때: `closures` (Il2Cpp)
+기본 덤프(Il2CppInterop 시그니처)만으로 대부분의 Harmony 패치를 만들 수 있습니다. 다음 경우에만 `closures`로 DummyDll의 주소 정보를 봅니다.
+
+- 패치가 엉뚱한 곳에서도 실행된다 → `⚠ ICF`: 링커가 같은 기계어를 한 주소로 합쳤고, Il2CppInterop 패치는 그 네이티브 주소에 걸립니다.
+- 코루틴/async 메서드를 패치했는데 본문이 안 잡힌다 → `→ 본문은 <X>d__N.MoveNext`와 상태·지역 변수 필드 오프셋.
+- 람다·로컬 함수를 패치하고 싶다 → Interop 이름(`__c__DisplayClass2_0._Method_b__0`). `✗ Interop 어셈블리에 없음`이면 이름으로는 패치할 수 없으니 RVA로 네이티브 훅을 걸거나 호출자를 패치합니다.
+
+`--dummy`에는 게임 폴더(MelonLoader가 만든 `MelonLoader/Dependencies/Il2CppAssemblyGenerator/Cpp2IL/cpp2il_out`을 자동으로 찾음)나 Il2CppDumper 출력의 `DummyDll` 폴더를 넣습니다. 같은 게임의 덤프(`--ref`, 생략하면 `reference.json`의 게임 루트가 같은 덤프)가 있으면 Interop 이름이 실제로 있는지도 확인합니다.
 
 ### 종료 코드
 - `0`: 성공

@@ -36,6 +36,7 @@ MCP 도구(`modding-support-tool` 서버)가 보이면 그것을 쓴다. 안 보
 | 검색 | `search_reference(query, kind)` | `search <이름> --kind method --ref <출력>` |
 | 선언/본문 읽기 | `read_reference_type(type, member)` | `type <타입> --member <멤버> --ref <출력>` |
 | Harmony 패치 | `generate_harmony_patch(type, method)` | `patch <타입> <메서드> --ref <출력>` |
+| 람다·코루틴 주소 (Il2Cpp) | `inspect_closures(type, method)` | `closures <타입> <메서드> --dummy <게임폴더>` |
 | 모드 프로젝트 | `generate_melon_mod_project(game_path, mod_name, output_dir)` | `template <게임폴더> <모드이름> --out <폴더>` |
 
 CLI 명령 예와 출력 해석: [references/workflow.md](references/workflow.md)
@@ -56,6 +57,8 @@ CLI 명령 예와 출력 해석: [references/workflow.md](references/workflow.md
 5. **패치** — `generate_harmony_patch(type, method)`가 만든 클래스를 프로젝트에 넣고 Prefix/Postfix 안을 채운다.
    패턴과 함정: [references/harmony-patterns.md](references/harmony-patterns.md)
    - Il2Cpp라면 반드시 [references/il2cpp-interop.md](references/il2cpp-interop.md)를 읽는다 (캐스팅, 컬렉션, 델리게이트, 컴포넌트 주입).
+   - Il2Cpp에서 패치가 엉뚱한 곳에서도 불리거나, 코루틴 본문이 안 잡히거나, 람다·로컬 함수를 패치해야 하면 `inspect_closures(type, method)`로
+     공유 주소(ICF), 상태 머신 `MoveNext`, 실제 Interop 이름을 확인한다. 처음부터 부를 필요는 없다.
 6. **빌드** — 모드 프로젝트 폴더에서 `dotnet build -c Release`. 모르는 타입 오류가 나면 `search_reference`로
    네임스페이스를 찾아 `using`을 고친다.
 7. **배포/검증** — 게임 `Mods` 폴더 복사(`-p:CopyToMods=true`)나 게임 실행은 **사용자 확인 후** 한다.

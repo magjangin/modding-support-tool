@@ -17,7 +17,7 @@ public static class CliRunner
     // 종료 코드: 0 성공, 1 입력/인자 오류, 2 취소, 3 덤프·도구 실패
     private const int Ok = 0, BadInput = 1, Cancelled = 2, Failed = 3;
 
-    private static readonly string[] Commands = { "dump", "outline", "detect", "refs", "search", "type", "patch", "template", "mcp", "agent", "help" };
+    private static readonly string[] Commands = { "dump", "outline", "detect", "refs", "search", "type", "patch", "closures", "template", "mcp", "agent", "help" };
 
     public static bool IsCommand(string arg) => Commands.Contains(arg, StringComparer.OrdinalIgnoreCase);
 
@@ -48,6 +48,8 @@ public static class CliRunner
                 return Print(toolkit.ReadType(rest.Positional(0) ?? "", rest.Get("ref"), rest.Get("member"), rest.Has("full"), rest.GetInt("max-chars", 40000)));
             case "patch":
                 return Print(toolkit.HarmonyPatch(rest.Positional(0) ?? "", rest.Positional(1) ?? rest.Get("member") ?? "", rest.Get("ref"), rest.Get("kind")));
+            case "closures":
+                return Print(toolkit.Closures(rest.Positional(0) ?? "", rest.Positional(1) ?? rest.Get("method"), rest.Get("dummy"), rest.Get("ref"), rest.Get("assembly"), rest.GetInt("max-chars", 40000)));
             case "template":
                 return Print(toolkit.ModTemplate(rest.Positional(0) ?? "", rest.Positional(1) ?? rest.Get("name") ?? "", rest.Get("author"), rest.Get("out", "output"), rest.Has("force") || rest.Has("overwrite")));
             default:
@@ -270,6 +272,8 @@ Modding Support Tool {AppPaths.Version} — MelonLoader 모드(DLL) 작성용 C#
   search <이름> [--kind type|method|property|field] [--ns 네임스페이스] [--limit N]
   type <타입> [--member 멤버] [--full]   선언 읽기 (member는 본문 포함)
   patch <타입> <메서드> [--kind prefix|postfix|both]   Harmony 패치 코드 생성
+  closures <타입> [메서드] [--dummy 게임폴더|DummyDll] [--assembly 이름]
+                                        훅이 안 잡힐 때: 람다·클로저·코루틴의 RVA, 공유 주소(ICF), Interop 이름 (Il2Cpp)
   template <게임폴더> <모드이름> [--author 이름] [--out 폴더] [--force]   MelonLoader 모드 프로젝트 생성
 
 AI 에이전트 연동

@@ -52,7 +52,7 @@
 - [`Mcp/McpTools.cs`](../ModdingSupportTool/Agent/Mcp/McpTools.cs) — 도구 7개의 이름·설명·입력 스키마와 핸들러.
 
 ### 📂 `Cli/`
-- [`CliRunner.cs`](../ModdingSupportTool/Cli/CliRunner.cs) — 하위 명령(`dump`, `outline`, `detect`, `refs`, `search`, `type`, `patch`, `template`, `mcp`, `agent`)과 예전 인자 형식 처리, 사용법·종료 코드.
+- [`CliRunner.cs`](../ModdingSupportTool/Cli/CliRunner.cs) — 하위 명령(`dump`, `outline`, `detect`, `refs`, `search`, `type`, `patch`, `closures`, `template`, `mcp`, `agent`)과 예전 인자 형식 처리, 사용법·종료 코드.
 - [`CliArgs.cs`](../ModdingSupportTool/Cli/CliArgs.cs) — 위치 인자·옵션·플래그 파서 (`-i/-o/-t` 별칭).
 
 ### 📂 `Core/`
@@ -68,6 +68,7 @@
   - [`ReferenceManifest.cs`](../ModdingSupportTool/Core/Reference/ReferenceManifest.cs) — `reference.json` 읽기/기록
   - [`ReferenceIndex.cs`](../ModdingSupportTool/Core/Reference/ReferenceIndex.cs) — Roslyn 색인, 검색 점수, 타입 노드 찾기
   - [`HarmonyPatchGenerator.cs`](../ModdingSupportTool/Core/Reference/HarmonyPatchGenerator.cs) — 실제 시그니처 기반 HarmonyX 패치 생성
+  - [`ClosureInspector.cs`](../ModdingSupportTool/Core/Reference/ClosureInspector.cs) — DummyDll(Cpp2IL/Il2CppDumper)에서 람다·클로저·코루틴의 RVA, ICF 공유 주소, Interop 이름 조회 (`closures` / `inspect_closures`)
   - [`MelonModTemplate.cs`](../ModdingSupportTool/Core/Reference/MelonModTemplate.cs) — MelonLoader 모드 `.csproj` + `Core.cs` 생성
 
 ### 📂 `Services/`

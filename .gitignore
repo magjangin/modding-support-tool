@@ -8,6 +8,8 @@ Publish/
 Decompiled/
 Decompiled_*/
 Test*Dump/
+# Il2CppDumper/Cpp2IL 실험 출력 (게임 파일에서 나온 덤프)
+Il2CppDumperOut/
 
 # dotenv files
 .env

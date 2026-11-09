@@ -59,6 +59,7 @@
 ```powershell
 & $exe template "D:\Games\MyGame" "MyFirstMod" --author "me" --out "D:\Mods\MyFirstMod"
 & $exe patch "GameManager" "AddScore" --kind postfix --ref "D:\Refs\MyGame"
+& $exe closures "GameManager" "AddScore" --dummy "D:\Games\MyGame" --ref "D:\Refs\MyGame"   # Il2Cpp: 람다·코루틴 주소, ICF
 ```
 
 - 생성된 패치 코드의 `namespace YourMod`를 모드 네임스페이스로 바꿔 `.cs` 파일로 저장한다.
@@ -89,6 +90,7 @@ dotnet build -c Release -p:CopyToMods=true    # 사용자 확인 후: <게임>/M
 | `search_reference` | `query` | `kind`(all/type/member/method/property/field), `namespace`, `limit`, `reference_dir` |
 | `read_reference_type` | `type` | `member`, `include_bodies`, `max_chars`, `reference_dir` |
 | `generate_harmony_patch` | `type`, `method` | `patch`(both/prefix/postfix), `reference_dir` |
+| `inspect_closures` | `type` | `method`, `dummy_path`(게임 폴더 또는 DummyDll), `assembly`, `max_chars`, `reference_dir` |
 | `generate_melon_mod_project` | `game_path`, `mod_name` | `author`, `output_dir`, `overwrite` |
 
 `reference_dir`를 생략하면: 이번 세션의 마지막 덤프 → `mcp --ref` 값 → 환경 변수 `MST_REFERENCE_DIR` → 기본 출력 폴더 순으로 찾는다.

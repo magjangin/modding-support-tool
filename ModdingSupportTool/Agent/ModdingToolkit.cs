@@ -418,6 +418,100 @@ public sealed class ModdingToolkit
         return new ToolResult(sb.ToString().TrimEnd());
     }
 
+    // ───────────────────────────── closures ─────────────────────────────
+
+    /// <summary>
+    /// 기본 덤프로 훅을 잡다 막혔을 때: DummyDll(MelonLoader cpp2il_out 또는 Il2CppDumper)에서 메서드에 딸린 람다·클로저·코루틴의
+    /// RVA, 공유 주소(ICF), 캡처 변수 오프셋, Il2CppInterop 이름을 보여 준다.
+    /// </summary>
+    public ToolResult Closures(string typeName, string? method, string? dummyPath, string? referenceDirectory, string? assembly, int maxChars, CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(typeName)) return ToolResult.Fail("type이 비어 있습니다.");
+
+        // 레퍼런스는 없어도 된다. 있으면 게임 위치(cpp2il_out)와 실제 Interop 이름 확인에 쓴다.
+        // 단 다른 게임의 레퍼런스로 이름을 "확인"하면 안 되므로, 명시하지 않았으면 같은 게임 루트의 레퍼런스만 쓴다.
+        string? refDir = null;
+        if (!string.IsNullOrWhiteSpace(referenceDirectory))
+        {
+            refDir = ResolveReferenceDirectory(referenceDirectory, out var refProblem);
+            if (refDir == null) return ToolResult.Fail(refProblem!);
+        }
+        else if (string.IsNullOrWhiteSpace(dummyPath))
+        {
+            refDir = ResolveReferenceDirectory(null, out _);
+        }
+
+        string? source = string.IsNullOrWhiteSpace(dummyPath) ? (refDir != null ? ReferenceManifest.Load(refDir)?.GameRoot : null) : dummyPath;
+        if (string.IsNullOrWhiteSpace(source))
+        {
+            return ToolResult.Fail("dummy_path가 필요합니다. 게임 폴더(MelonLoader cpp2il_out을 자동으로 찾음)나 Il2CppDumper의 DummyDll 폴더를 지정하세요.");
+        }
+
+        string? dummyDir = ClosureInspector.FindDummyDirectory(source, out var problem);
+        if (dummyDir == null) return ToolResult.Fail(problem!);
+
+        refDir ??= FindReferenceForGame(GameLocator.Find(dummyDir)?.Root);
+        ReferenceIndex? index = null;
+        if (refDir != null)
+        {
+            try { index = ReferenceIndex.Load(refDir, ct); }
+            catch (Exception ex) when (ex is not OperationCanceledException) { index = null; }
+            if (index?.Types.Count == 0) index = null;
+        }
+
+        Func<string, string?, InteropLookup>? lookup = index == null ? null : (display, member) =>
+        {
+            // 중첩 표시 이름(Outer.__c__DisplayClass2_0)이 제네릭 인자를 빼고 정확히 같은 타입이 하나일 때만 확인된 것으로 본다.
+            var hits = index.Types.Where(t => string.Equals(StripGenerics(t.DisplayName), display, StringComparison.Ordinal)).ToList();
+            if (hits.Count != 1) return new InteropLookup(null, false);
+            var type = hits[0];
+            if (member == null) return new InteropLookup(type.FullName, true);
+            bool exists = member == ".ctor"
+                ? type.Members.Any(m => m.Kind == MemberKind.Constructor)
+                : type.Members.Any(m => m.Name == member);
+            return new InteropLookup(exists ? $"{type.FullName}.{member}" : null, true);
+        };
+
+        try
+        {
+            var report = ClosureInspector.Use(dummyDir, inspector => inspector.Inspect(typeName, method, assembly, lookup, maxChars <= 0 ? 40000 : maxChars, ct));
+            return new ToolResult(report.Text, report.IsError);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            return ToolResult.Fail($"DummyDll을 읽지 못했습니다: {dummyDir}\n{ex.Message}");
+        }
+    }
+
+    private static string StripGenerics(string name)
+    {
+        string previous;
+        do
+        {
+            previous = name;
+            name = System.Text.RegularExpressions.Regex.Replace(name, "<[^<>]*>", "");
+        } while (name != previous);
+        return name;
+    }
+
+    // 마지막 덤프·--ref·환경 변수·기본 출력 폴더의 게임별 레퍼런스 중 reference.json의 게임 루트가 같은 것을 찾는다.
+    private string? FindReferenceForGame(string? gameRoot)
+    {
+        if (string.IsNullOrWhiteSpace(gameRoot)) return null;
+        string root = Path.GetFullPath(gameRoot).TrimEnd('\\', '/');
+
+        var candidates = new List<string?> { _lastReferenceDirectory, DefaultReferenceDirectory, Environment.GetEnvironmentVariable(ReferenceEnvironmentVariable), AppPaths.DefaultOutputDirectory };
+        if (Directory.Exists(AppPaths.DefaultOutputDirectory)) candidates.AddRange(ListReferenceFolders(AppPaths.DefaultOutputDirectory));
+
+        foreach (var dir in candidates)
+        {
+            if (string.IsNullOrWhiteSpace(dir) || !Directory.Exists(dir)) continue;
+            string? manifestRoot = ReferenceManifest.Load(dir)?.GameRoot;
+            if (manifestRoot != null && string.Equals(Path.GetFullPath(manifestRoot).TrimEnd('\\', '/'), root, StringComparison.OrdinalIgnoreCase)) return dir;
+        }
+        return null;
+    }
+
     public ToolResult ModTemplate(string gamePath, string modName, string? author, string? outputDirectory, bool overwrite)
     {
         if (string.IsNullOrWhiteSpace(gamePath)) return ToolResult.Fail("game_path가 비어 있습니다.");

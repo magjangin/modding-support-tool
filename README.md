@@ -61,6 +61,7 @@ MCP 서버(`ModdingSupportTool.exe mcp`)가 제공하는 도구:
 | `search_reference` | 타입·메서드·프로퍼티·필드 이름 검색 (`Type.Member`, 와일드카드) |
 | `read_reference_type` | 타입 선언 / 멤버 하나(Mono는 본문 포함) 읽기 |
 | `generate_harmony_patch` | 실제 시그니처로 HarmonyX Prefix/Postfix 생성 |
+| `inspect_closures` | (Il2Cpp, 훅이 안 잡힐 때) 람다·클로저·코루틴의 RVA, 공유 주소(ICF), Interop 이름 |
 | `generate_melon_mod_project` | 게임 경로를 채운 MelonLoader 모드 `.csproj` + `Core.cs` 생성 |
 
 이 저장소는 그대로 **Claude Code 플러그인 마켓플레이스**이자 **Antigravity 플러그인**이기도 합니다 ([`agent/`](agent/README.md)).
@@ -107,6 +108,7 @@ dotnet run --project ModdingSupportTool     # 또는 Publish\ModdingSupportTool.
 .\Publish\ModdingSupportTool.exe dump "D:\Games\MyGame" ".\Decompiled"       # 덤프 (예전 형식 -i/-o/-t, --cli 도 지원)
 .\Publish\ModdingSupportTool.exe search "PlayerController" --ref ".\Decompiled"
 .\Publish\ModdingSupportTool.exe patch "PlayerController" "TakeDamage" --ref ".\Decompiled"
+.\Publish\ModdingSupportTool.exe closures "AchievementForSteam" "SetAchievementUnlock" --dummy "D:\Games\MyGame"
 .\Publish\ModdingSupportTool.exe template "D:\Games\MyGame" "MyMod" --out "D:\Mods\MyMod"
 .\Publish\ModdingSupportTool.exe help
 ```

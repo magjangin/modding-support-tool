@@ -197,6 +197,27 @@ internal static class McpTools
         },
         new()
         {
+            Name = "inspect_closures",
+            Title = "람다·클로저·코루틴 주소 조회 (Il2Cpp)",
+            Description = "기본 레퍼런스로 Harmony 패치를 걸었는데 훅이 안 잡히거나 엉뚱한 곳에서도 불릴 때 쓰세요. " +
+                          "MelonLoader가 만든 Cpp2IL DummyDll(또는 Il2CppDumper DummyDll)에서 메서드에 딸린 람다(<X>b__N)·클로저(DisplayClass)·" +
+                          "코루틴/async 상태 머신(MoveNext)·로컬 함수를 찾아 RVA, 같은 기계어를 공유하는(ICF) 다른 메서드, 캡처 변수 오프셋, " +
+                          "Harmony에 쓸 Il2CppInterop 이름을 돌려줍니다. Il2Cpp 전용이며 메서드 본문은 보여 주지 않습니다.",
+            ReadOnly = true,
+            Properties = new[]
+            {
+                new McpProperty("type", "string", "소유 타입 이름 (원래 이름, Il2Cpp.Foo 같은 Interop 이름, 또는 'Type.Method')", Required: true),
+                new McpProperty("method", "string", "원래 메서드 이름. 주면 그 메서드에서 생긴 것만 (생략하면 타입 전체)"),
+                new McpProperty("dummy_path", "string", "게임 폴더(MelonLoader cpp2il_out 자동 탐색) 또는 DummyDll 폴더. 생략하면 레퍼런스의 게임 루트"),
+                new McpProperty("assembly", "string", "타입이 있는 어셈블리 (기본: Assembly-CSharp 우선, 없으면 전체)"),
+                new McpProperty("max_chars", "integer", "최대 글자 수 (기본 40000)"),
+                new McpProperty("reference_dir", "string", RefDirDescription + " Interop 이름 확인에 씁니다.")
+            },
+            Handler = (a, ctx) => Task.FromResult(toolkit.Closures(a.Required("type"), a.String("method"), a.String("dummy_path"), a.String("reference_dir"),
+                a.String("assembly"), a.Int("max_chars", 40000), ctx.CancellationToken))
+        },
+        new()
+        {
             Name = "generate_melon_mod_project",
             Title = "MelonLoader 모드 프로젝트 생성",
             Description = "게임 폴더를 보고 실제 MelonLoader/게임 어셈블리 경로를 참조하는 모드 프로젝트(.csproj + Core.cs, MelonInfo/MelonGame 포함)를 만듭니다. " +
