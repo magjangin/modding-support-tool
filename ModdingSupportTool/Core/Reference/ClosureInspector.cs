@@ -218,9 +218,15 @@ public sealed class ClosureInspector : IDisposable
     private List<Type> FindTypes(string query, string? assemblyName)
     {
         // Il2CppInterop 이름(Il2Cpp.Foo, Il2CppRhythmGame.Foo, Foo.__c__DisplayClass2_0)도 원래 이름과 맞도록 식별자 밖 문자를 _로 바꿔 비교한다.
-        var variants = new List<string> { query };
-        if (query.StartsWith("Il2Cpp.", StringComparison.Ordinal)) variants.Add(query["Il2Cpp.".Length..]);
-        else if (query.StartsWith("Il2Cpp", StringComparison.Ordinal) && query.Contains('.')) variants.Add(query["Il2Cpp".Length..]);
+        // 제네릭 표기(ListViewerBase<T>, ListViewerBase`1)는 떼고 비교한다. 비교 키도 arity를 뗀 이름이다.
+        string plain = Regex.Replace(query, @"<[^<>]*>|`\d+", "");
+        while (plain != (plain = Regex.Replace(plain, @"<[^<>]*>", ""))) { }
+        var variants = new List<string> { query, plain };
+        foreach (string q in new[] { query, plain })
+        {
+            if (q.StartsWith("Il2Cpp.", StringComparison.Ordinal)) variants.Add(q["Il2Cpp.".Length..]);
+            else if (q.StartsWith("Il2Cpp", StringComparison.Ordinal) && q.Contains('.')) variants.Add(q["Il2Cpp".Length..]);
+        }
         var wanted = variants.Select(Mangle).Distinct().ToList();
 
         IEnumerable<Assembly> scope = _assemblies;
