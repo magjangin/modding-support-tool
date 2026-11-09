@@ -60,6 +60,10 @@ public sealed class ClosureInspector : IDisposable
     public string Directory { get; }
     public string Flavor { get; }
 
+    // 같은 게임의 MelonLoader/Il2CppAssemblies. 있으면 토큰으로 실제 Interop 이름을 찾는다.
+    private readonly string? _interopDirectory;
+    private readonly Dictionary<string, InteropTokenMap?> _interopMaps = new(StringComparer.OrdinalIgnoreCase);
+
     private ClosureInspector(string directory, DateTime stamp)
     {
         Directory = directory;
@@ -79,9 +83,33 @@ public sealed class ClosureInspector : IDisposable
         }
 
         Flavor = paths.ContainsKey("Il2CppDummyDll") ? "Il2CppDumper" : "Cpp2IL";
+
+        string? melonLoader = GameLocator.Find(directory)?.MelonLoaderDirectory;
+        string? interop = melonLoader != null ? Path.Combine(melonLoader, "Il2CppAssemblies") : null;
+        _interopDirectory = interop != null && System.IO.Directory.Exists(interop) ? interop : null;
     }
 
     public void Dispose() => _mlc.Dispose();
+
+    private InteropTokenMap? GetInteropMap(Assembly dummyAssembly)
+    {
+        if (_interopDirectory == null) return null;
+        string name = dummyAssembly.GetName().Name ?? "";
+        if (!_interopMaps.TryGetValue(name, out var map)) _interopMaps[name] = map = InteropTokenMap.TryOpen(_interopDirectory, name);
+        return map;
+    }
+
+    // Il2CppInterop은 더미 메서드의 [Token(Token = "0x6000123")] 값(il2cpp 런타임 토큰)으로 메서드를 찾는다. 더미 어셈블리 자체의 메타데이터 토큰과 다를 수 있다.
+    private static int Il2CppToken(MethodBase m)
+    {
+        var values = ReadDummyAttribute(m, "TokenAttribute");
+        if (values != null && values.TryGetValue("Token", out var text))
+        {
+            string hex = text.StartsWith("0x", StringComparison.OrdinalIgnoreCase) ? text[2..] : text;
+            if (int.TryParse(hex, System.Globalization.NumberStyles.HexNumber, null, out int token)) return token;
+        }
+        return m.MetadataToken;
+    }
 
     // ───────────────────────────── 폴더 찾기 ─────────────────────────────
 
@@ -129,9 +157,11 @@ public sealed class ClosureInspector : IDisposable
         return null;
     }
 
+    // 게임 코드가 asmdef로 나뉜 게임(PLATiNA LAB, Transiruby 등)은 Assembly-CSharp.dll이 없다. 그래서 mscorlib 옆에 다른 어셈블리가 있는지만 본다.
+    // (Mono Managed 폴더도 여기를 통과하지만, Inspect에서 더미 주소 속성이 없다고 알려 준다)
     private static bool LooksLikeDummyFolder(string dir) =>
         System.IO.Directory.Exists(dir) && File.Exists(Path.Combine(dir, "mscorlib.dll")) &&
-        System.IO.Directory.EnumerateFiles(dir, "Assembly-CSharp*.dll").Any();
+        System.IO.Directory.EnumerateFiles(dir, "*.dll").Skip(1).Any();
 
     /// <summary>같은 폴더를 연달아 조회할 때(MCP) 어셈블리와 주소 색인을 다시 만들지 않는다.</summary>
     public static T Use<T>(string directory, Func<ClosureInspector, T> action)
@@ -232,7 +262,9 @@ public sealed class ClosureInspector : IDisposable
         IEnumerable<Assembly> scope = _assemblies;
         if (!string.IsNullOrWhiteSpace(assemblyName))
         {
-            string name = Path.GetFileNameWithoutExtension(assemblyName.Trim());
+            // HighendGames.GamePlatform.Steam처럼 점이 든 이름에서 GetFileNameWithoutExtension은 ".Steam"을 확장자로 잘라 버린다. .dll만 뗀다.
+            string name = assemblyName.Trim();
+            if (name.EndsWith(".dll", StringComparison.OrdinalIgnoreCase)) name = name[..^4];
             scope = _assemblies.Where(a => string.Equals(a.GetName().Name, name, StringComparison.OrdinalIgnoreCase));
         }
         else
@@ -240,9 +272,31 @@ public sealed class ClosureInspector : IDisposable
             // 게임 코드를 먼저 본다. 거기 없을 때만 전체 어셈블리를 본다.
             var game = _assemblies.Where(a => a.GetName().Name?.StartsWith("Assembly-CSharp", StringComparison.OrdinalIgnoreCase) == true).ToList();
             var inGame = MatchTypes(game, wanted);
-            if (inGame.Count > 0) return inGame;
+            if (inGame.Count > 0) return NarrowByArity(inGame, query);
         }
-        return MatchTypes(scope, wanted);
+        return NarrowByArity(MatchTypes(scope, wanted), query);
+    }
+
+    // BTask와 BTask<T>처럼 제네릭 인자만 다른 타입은 arity를 떼면 이름이 같다. 입력에 적힌 제네릭 인자 수(없으면 0)로 고른다.
+    private static List<Type> NarrowByArity(List<Type> hits, string query)
+    {
+        if (hits.Count < 2) return hits;
+        int wantedArity = 0;
+        var tick = Regex.Match(query, @"`(\d+)$");
+        if (tick.Success) wantedArity = int.Parse(tick.Groups[1].Value);
+        else
+        {
+            int open = query.LastIndexOf('<');
+            if (open > 0 && query.EndsWith('>')) wantedArity = query[open..].Count(c => c == ',') + 1;
+        }
+        var narrowed = hits.Where(t => OwnArity(t) == wantedArity).ToList();
+        return narrowed.Count > 0 ? narrowed : hits;
+    }
+
+    private static int OwnArity(Type t)
+    {
+        int tick = t.Name.IndexOf('`');
+        return tick >= 0 && int.TryParse(t.Name[(tick + 1)..], out int n) ? n : 0;
     }
 
     private List<Type> MatchTypes(IEnumerable<Assembly> assemblies, List<string> wanted)
@@ -533,6 +587,9 @@ public sealed class ClosureInspector : IDisposable
         private bool _sawSharedAddress;
         private bool _sawStateMachine;
         private bool _sawMissingInInterop;
+        private bool _sawRenamed;
+        private bool _sawGuess;
+        private bool _sawLocalFunctionGuess;
         private int _items;
 
         public ReportWriter(ClosureInspector owner, Dictionary<string, List<AddressEntry>> map, Func<string, string?, InteropLookup>? interopLookup)
@@ -650,14 +707,14 @@ public sealed class ClosureInspector : IDisposable
 
             if (IsCompilerGeneratedName(m.Name) || IsCompilerGeneratedName(declaring.Name))
             {
-                _sb.AppendLine($"{indent}  Interop: {InteropMemberName(declaring, name)}");
+                _sb.AppendLine($"{indent}  Interop: {InteropMemberName(m, declaring, name)}");
             }
 
             if (m is MethodInfo method && FindStateMachine(method) is { } sm)
             {
                 var moveNext = SafeMethods(sm).FirstOrDefault(x => x.Name == "MoveNext");
                 _sb.AppendLine($"{indent}  → 본문은 {DisplayName(sm)}.MoveNext  RVA {(moveNext != null ? GetRva(moveNext) ?? "없음" : "없음")}" +
-                               $"  (Interop: {InteropMemberName(sm, "MoveNext")})");
+                               $"  (Interop: {(moveNext != null ? InteropMemberName(moveNext, sm, "MoveNext") : "?")})");
                 _sawStateMachine = true;
             }
 
@@ -680,11 +737,16 @@ public sealed class ClosureInspector : IDisposable
 
         public string Finish()
         {
-            if (_sawSharedAddress || _sawStateMachine || _sawMissingInInterop || _interopLookup == null) _sb.AppendLine("참고:");
+            if (_sawSharedAddress || _sawStateMachine || _sawMissingInInterop || _sawRenamed || _sawGuess || _sawLocalFunctionGuess) _sb.AppendLine("참고:");
+            if (_sawRenamed)
+            {
+                _sb.AppendLine("- 개명: 이름에 '|'가 든 로컬 함수 등은 Il2CppInterop이 난독화된 이름으로 보고 Method_<접근>_<반환>_<인자>_N 형태로 바꿉니다. " +
+                               "Harmony에는 위에 나온 바뀐 이름을 그대로 쓰세요.");
+            }
             if (_sawMissingInInterop)
             {
-                _sb.AppendLine("- ✗ 표시: Il2CppInterop이 이 멤버를 만들지 않았습니다(로컬 함수 등). typeof(...)로 이름을 지정할 수 없으니 위 RVA로 네이티브 훅을 걸거나 " +
-                               "(GameAssembly.dll 베이스 + RVA), 이 멤버를 부르는 원래 메서드를 패치하세요.");
+                _sb.AppendLine("- ✗ 표시: Il2CppAssemblies에 이 메서드가 없습니다. 이름으로 패치할 수 없으니 위 RVA로 네이티브 훅을 걸거나 " +
+                               "(GameAssembly.dll 베이스 + RVA), 이 메서드를 부르는 원래 메서드를 패치하세요.");
             }
             if (_sawStateMachine)
             {
@@ -696,39 +758,65 @@ public sealed class ClosureInspector : IDisposable
                 _sb.AppendLine("- ICF(동일 코드 병합): 링커가 기계어가 같은 메서드를 한 주소로 합쳤습니다. Il2CppInterop의 Harmony 패치도 네이티브 주소에 디투어를 걸기 때문에, " +
                                "공유하는 다른 메서드가 호출될 때도 패치가 실행됩니다. __instance 타입이나 인자로 거르거나, 이 메서드를 부르는 쪽(호출자)을 패치하세요.");
             }
-            if (_interopLookup == null)
+            if (_sawLocalFunctionGuess)
             {
-                _sb.AppendLine("- Interop 이름은 규칙으로 추정한 값입니다(Il2Cpp 네임스페이스 접두사, < > | → _). 같은 게임의 Il2CppInterop 덤프(reference_dir)가 있으면 실제로 있는지까지 확인합니다.");
+                _sb.AppendLine("- ⚠ 로컬 함수 이름은 추정이 거의 틀립니다: Il2CppInterop은 '|'가 든 이름을 Method_Internal_Static_Void_Int32_PDM_0처럼 시그니처 기반 이름으로 바꾸고, " +
+                               "_PDM·끝 번호는 생성 시점 분석에 달려 있어 규칙으로 맞출 수 없습니다. 게임 폴더(MelonLoader/Il2CppAssemblies가 있는 곳)로 조회하면 실제 이름이 나옵니다.");
+            }
+            if (_sawGuess)
+            {
+                _sb.AppendLine("- '추정' 표시 이름은 규칙(Il2Cpp 네임스페이스 접두사, < > → _)으로 만든 값입니다. 게임 폴더(Il2CppAssemblies)나 같은 게임의 덤프(reference_dir)로 조회하면 확인됩니다.");
             }
             return _sb.ToString().TrimEnd();
         }
 
         // ─── 이름 ───
+        // 우선순위: ① Il2CppAssemblies에서 토큰으로 찾은 실제 이름 ② 같은 게임 레퍼런스 덤프 ③ 규칙 추정
 
         private string InteropTypeName(Type type)
         {
+            var map = _owner.GetInteropMap(type.Assembly);
+            if (map != null)
+            {
+                foreach (var m in SafeMethods(type))
+                {
+                    if (map.Resolve(Il2CppToken(m)) is { } hit) return hit.TypeName + "  (Il2CppAssemblies에서 확인)";
+                }
+            }
+
             string display = Mangle(DisplayName(type));
-            string guess = GuessInteropNamespace(type) + "." + display;
-            if (_interopLookup == null) return guess;
-            var found = _interopLookup(display, null);
-            if (found.Name != null) return found.Name + "  (레퍼런스에서 확인)";
-            return guess + "  (레퍼런스에서 못 찾음: 추정)";
+            if (_interopLookup != null && _interopLookup(display, null).Name is { } found) return found + "  (레퍼런스에서 확인)";
+            _sawGuess = true;
+            return GuessInteropNamespace(type) + "." + display + "  (추정)";
         }
 
-        private string InteropMemberName(Type type, string member)
+        private string InteropMemberName(MethodBase m, Type type, string member)
         {
             string display = Mangle(DisplayName(type));
             string mangled = member == ".ctor" ? member : Mangle(member);
             string guess = GuessInteropNamespace(type) + "." + display + "." + mangled;
-            if (_interopLookup == null) return guess;
-            var found = _interopLookup(display, mangled);
-            if (found.Name != null) return found.Name + "  (레퍼런스에서 확인)";
-            if (found.TypeResolved)
+
+            var map = _owner.GetInteropMap(type.Assembly);
+            if (map != null)
             {
+                if (map.Resolve(Il2CppToken(m)) is { } hit)
+                {
+                    bool renamed = member.Contains('|') || !string.Equals(hit.MethodName, mangled, StringComparison.Ordinal) && member != ".ctor";
+                    if (renamed) _sawRenamed = true;
+                    return $"{hit.TypeName}.{hit.MethodName}  (Il2CppAssemblies에서 확인{(renamed ? ", 시그니처 기반으로 개명됨" : "")})";
+                }
                 _sawMissingInInterop = true;
-                return guess + "  ✗ Interop 어셈블리에 없음 → 이름으로 Harmony 패치 불가";
+                return guess + "  ✗ Il2CppAssemblies에 없음 → 이름으로 Harmony 패치 불가";
             }
-            return guess + "  (레퍼런스에서 못 찾음: 추정)";
+
+            if (_interopLookup != null && _interopLookup(display, mangled).Name is { } found) return found + "  (레퍼런스에서 확인)";
+            if (member.Contains('|'))
+            {
+                _sawLocalFunctionGuess = true;
+                return guess + "  ⚠ 추정 (로컬 함수는 실제로 Method_… 이름으로 바뀜)";
+            }
+            _sawGuess = true;
+            return guess + "  (추정)";
         }
 
         private static string GuessInteropNamespace(Type type)

@@ -202,7 +202,8 @@ internal static class McpTools
             Description = "기본 레퍼런스로 Harmony 패치를 걸었는데 훅이 안 잡히거나 엉뚱한 곳에서도 불릴 때 쓰세요. " +
                           "MelonLoader가 만든 Cpp2IL DummyDll(또는 Il2CppDumper DummyDll)에서 메서드에 딸린 람다(<X>b__N)·클로저(DisplayClass)·" +
                           "코루틴/async 상태 머신(MoveNext)·로컬 함수를 찾아 RVA, 같은 기계어를 공유하는(ICF) 다른 메서드, 캡처 변수 오프셋, " +
-                          "Harmony에 쓸 Il2CppInterop 이름을 돌려줍니다. Il2Cpp 전용이며 메서드 본문은 보여 주지 않습니다.",
+                          "Harmony에 쓸 Il2CppInterop 이름을 돌려줍니다. 로컬 함수는 Interop에서 Method_Internal_..._0 같은 시그니처 기반 이름으로 바뀌므로 " +
+                          "dummy_path에 게임 폴더를 주면 Il2CppAssemblies에서 토큰으로 실제 이름을 확정합니다. Il2Cpp 전용이며 메서드 본문은 보여 주지 않습니다.",
             ReadOnly = true,
             Properties = new[]
             {

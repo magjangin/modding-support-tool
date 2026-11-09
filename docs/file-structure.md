@@ -69,6 +69,7 @@
   - [`ReferenceIndex.cs`](../ModdingSupportTool/Core/Reference/ReferenceIndex.cs) — Roslyn 색인, 검색 점수, 타입 노드 찾기
   - [`HarmonyPatchGenerator.cs`](../ModdingSupportTool/Core/Reference/HarmonyPatchGenerator.cs) — 실제 시그니처 기반 HarmonyX 패치 생성
   - [`ClosureInspector.cs`](../ModdingSupportTool/Core/Reference/ClosureInspector.cs) — DummyDll(Cpp2IL/Il2CppDumper)에서 람다·클로저·코루틴의 RVA, ICF 공유 주소, Interop 이름 조회 (`closures` / `inspect_closures`)
+  - [`InteropTokenMap.cs`](../ModdingSupportTool/Core/Reference/InteropTokenMap.cs) — Il2CppAssemblies 정적 생성자 IL에서 원래 메서드 토큰 → 실제 Interop 메서드 이름 (로컬 함수의 `Method_…` 개명 대응)
   - [`MelonModTemplate.cs`](../ModdingSupportTool/Core/Reference/MelonModTemplate.cs) — MelonLoader 모드 `.csproj` + `Core.cs` 생성
 
 ### 📂 `Services/`

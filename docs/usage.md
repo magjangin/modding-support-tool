@@ -73,9 +73,9 @@ ModdingSupportTool.exe template "H:\muse dash hwa" "MyFirstMod" --author "me" --
 
 - 패치가 엉뚱한 곳에서도 실행된다 → `⚠ ICF`: 링커가 같은 기계어를 한 주소로 합쳤고, Il2CppInterop 패치는 그 네이티브 주소에 걸립니다.
 - 코루틴/async 메서드를 패치했는데 본문이 안 잡힌다 → `→ 본문은 <X>d__N.MoveNext`와 상태·지역 변수 필드 오프셋.
-- 람다·로컬 함수를 패치하고 싶다 → Interop 이름(`__c__DisplayClass2_0._Method_b__0`). `✗ Interop 어셈블리에 없음`이면 이름으로는 패치할 수 없으니 RVA로 네이티브 훅을 걸거나 호출자를 패치합니다.
+- 람다·로컬 함수를 패치하고 싶다 → Harmony에 쓸 실제 Interop 이름. 람다는 `__c__DisplayClass2_0._Method_b__0`, 로컬 함수(`<X>g__Name|N_M`)는 Il2CppInterop이 `Method_Private_Void_String_PDM_0`처럼 **시그니처 기반 이름으로 바꾸므로** 표시된 이름을 그대로 씁니다.
 
-`--dummy`에는 게임 폴더(MelonLoader가 만든 `MelonLoader/Dependencies/Il2CppAssemblyGenerator/Cpp2IL/cpp2il_out`을 자동으로 찾음)나 Il2CppDumper 출력의 `DummyDll` 폴더를 넣습니다. 같은 게임의 덤프(`--ref`, 생략하면 `reference.json`의 게임 루트가 같은 덤프)가 있으면 Interop 이름이 실제로 있는지도 확인합니다.
+`--dummy`에는 게임 폴더를 넣는 것을 권장합니다. MelonLoader가 만든 `MelonLoader/Dependencies/Il2CppAssemblyGenerator/Cpp2IL/cpp2il_out`을 찾고, 옆의 `MelonLoader/Il2CppAssemblies`에서 메서드 토큰으로 실제 Interop 이름을 확정합니다(`Il2CppAssemblies에서 확인`). Il2CppDumper 출력의 `DummyDll` 폴더만 넣으면 이름은 규칙 추정이며, 로컬 함수에는 `⚠ 추정` 경고가 붙습니다(실제 이름과 거의 다름). 이때 같은 게임의 덤프(`--ref`, 생략하면 `reference.json`의 게임 루트가 같은 덤프)가 있으면 람다 이름은 확인됩니다.
 
 ### 종료 코드
 - `0`: 성공

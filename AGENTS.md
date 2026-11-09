@@ -26,7 +26,9 @@ MelonLoader 모드(DLL) 작성용 C# 레퍼런스 생성기(Unity Mono/Il2Cpp). 
 - ICF 경고가 필요한 이유: Il2CppInterop의 Harmony 패치는 네이티브 함수 주소에 디투어를 걸어서, 같은 기계어를 공유하는 메서드가 모두 패치된다. 공유 20곳 이상은 "공용 코드"로 묶고 상대를 나열하지 않는다.
 - ICF 색인은 `System.Reflection.Metadata`로 전 어셈블리를 병렬로 읽는다(ICF는 GameAssembly.dll 전체 범위라 mscorlib·UnityEngine과도 겹침). 타입 상세는 MetadataLoadContext로 읽는다.
 - DummyDll은 MetadataLoadContext + 단순 이름 리졸버로 연다. 더미 mscorlib 공개 키 토큰이 비어 있어 `PathAssemblyResolver`가 거부하고, 런타임 로드는 명시적 인터페이스 구현 정보가 빠져 상태 머신 타입이 로드 거부된다.
-- Interop 이름 "확인"은 **같은 게임**(`reference.json`의 GameRoot 일치) 레퍼런스로만 한다. 다른 게임 덤프로 확인하면 틀린 "없음"이 나온다.
+- Interop 이름은 **토큰으로 확정**한다: Il2CppInterop은 각 타입의 정적 생성자에서 `NativeMethodInfoPtr_X = IL2CPP.GetIl2CppMethodByToken(classPtr, 원래토큰)`을 만든다. 더미 메서드의 `[Token]` 값으로 같은 게임의 `MelonLoader/Il2CppAssemblies`를 찾으면 정확한 이름이 나온다(`InteropTokenMap`). 규칙 추정으로는 로컬 함수 이름을 맞출 수 없다(아래 ⑤).
+- 이름 확인 우선순위: ① Il2CppAssemblies 토큰 매핑 ② 같은 게임(`reference.json`의 GameRoot 일치) 레퍼런스 덤프 ③ 규칙 추정. 다른 게임 덤프로 확인하면 틀린 "없음"이 나오므로 쓰지 않는다.
+- asmdef로 나뉜 게임(PLATiNA LAB, Transiruby)은 `Assembly-CSharp.dll`이 없고, Interop 파일 이름에 `Il2Cpp` 접두사가 붙는다(`Alchemy.dll` → `Il2CppAlchemy.dll`).
 - 범위 밖: Il2Cpp 메서드 본문(ISIL/디스어셈블리), Unreal(UE4SS). 본문 분석은 Ghidra/IDA/Cpp2IL 몫.
 
 ## ④ 핵심 진입점과 파이프라인
@@ -34,13 +36,15 @@ MelonLoader 모드(DLL) 작성용 C# 레퍼런스 생성기(Unity Mono/Il2Cpp). 
 - 조회: `ModdingToolkit.Search / ReadType / HarmonyPatch / Closures` ← CLI `Cli/CliRunner.cs`, MCP `Agent/Mcp/McpTools.cs`.
 - `closures`: `ModdingToolkit.Closures` → `ClosureInspector.FindDummyDirectory` → `ClosureInspector.Use`(폴더별 캐시) → `Inspect`(타입 찾기 → ICF 색인 → `ReportWriter`).
   - 람다 부모 메서드는 이름 규칙으로 찾는다: `<X>b__N_M`, `<X>d__N`, `<X>g__Name|N_M`, 중첩 `<<X>g__…>b__…` → `X`.
-  - Interop 이름 규칙: 식별자 밖 문자(`< > |`) → `_`, 네임스페이스 앞에 `Il2Cpp`(전역은 `Il2Cpp`).
+  - Interop 이름: `InteropTokenMap`(Il2CppAssemblies .cctor IL에서 토큰 → `NativeMethodInfoPtr_` 필드 → 그 필드를 읽는 메서드). 없을 때만 규칙 추정(식별자 밖 문자 `< >` → `_`, 네임스페이스 앞에 `Il2Cpp`).
 
 ## ⑤ 시도했다가 버린 것 (Dead Ends)
 - **전체 덤프에 RVA·필드 오프셋·ICF 주석 붙이기** (`experiment/dummydll-offsets`, 커밋 9703453, 삭제됨): 공용 코드 경고 소음, 원래 이름이라 Interop 이름과 안 맞음. → `closures`로 대체.
 - **MetadataLoadContext로 메서드마다 속성 읽어 ICF 색인**: STARTRAIL 93개 DLL에서 15.8초. → System.Reflection.Metadata 병렬로 0.6초.
 - **ISIL(Cpp2IL 중간 표현) 도입 검토**: 본문 분석이라 범위 밖. 하지 않는다.
-- **로컬 함수 Harmony 패치**: Il2CppInterop이 로컬 함수(`<X>g__…`)를 생성하지 않는다(STARTRAIL에서 `_g__` 0건). 도구는 `✗ Interop 어셈블리에 없음`으로 표시하고 RVA 네이티브 훅·호출자 패치를 안내한다.
+- **"로컬 함수는 Interop에 없다"는 판단 (틀렸음)**: `_g__` 문자열이 0건이라 없다고 봤지만, 실제로는 이름에 `|`가 있어 Il2CppInterop이 난독화된 이름으로 보고 `Method_Internal_Static_Void_Int32_PDM_0`처럼 **시그니처 기반 이름으로 바꾼 것**이었다. `_PDM`·끝 번호는 생성 시점 분석에 달려 있어 규칙으로 못 맞춘다 → 토큰 매핑으로 해결. 2026-11-09 11개 게임(Muse Dash, PLATiNA LAB, STARTRAIL, STARGAZER, Transiruby, KAMITSUBAKI, TurretGirls, Food Wagon, O2Jam, Yasha, MiSide)에서 로컬 함수 968개 전부 이름 확인, 없음 0.
+- **로컬 함수 이름 규칙 추정**: 위 이유로 거의 항상 틀린다. Il2CppAssemblies 없이 조회하면 `⚠ 추정` 경고를 붙인다.
+- 참고로 람다(`<X>b__N`)는 규칙 추정이 거의 맞는다: 같은 11개 게임 람다 16,593개 중 16,590개 일치. 다른 3개는 같은 타입 안 이름 충돌로 Il2CppInterop이 시그니처를 덧붙인 경우(`_GetValue_b__5_0_Private_Void_IValue_0`). 람다는 `<>c`·`<>c__DisplayClass` 말고 소유 타입에 직접 생기는 것(`this`만 캡처)도 약 18%라 출력 범위를 두 가지로 줄이지 않는다. 람다 조회가 실제 모딩에서 얼마나 쓸모 있는지는 아직 판단 전.
 
 ## ⑥ 빌드와 배포
 ```bash
