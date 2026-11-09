@@ -49,4 +49,4 @@ dotnet build ModdingSupportTool/ModdingSupportTool.csproj -c Debug
 - 릴리스: `publish.bat` → `Publish/ModdingSupportTool.exe` (단일 파일, win-x64, .NET 10 런타임 필요) + `run_dump.bat`.
 - 이 도구 자체는 게임 `Mods/`에 배포하지 않는다. 도구가 만든 모드 프로젝트는 `dotnet build -c Release` 후 `<게임>/Mods/`에 DLL을 넣는다(`-p:CopyToMods=true`).
 - 에이전트 연동: `ModdingSupportTool.exe agent install` (스킬 `agent/skills` + MCP 등록).
-- git 원격은 `origin`(GitHub)을 쓴다. `local` 원격(`D:\local-repos\...`)은 경로가 없어 현재 쓰이지 않는다.
+- git 푸시는 `origin`(GitHub)으로 한다.
